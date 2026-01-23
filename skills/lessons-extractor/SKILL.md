@@ -50,7 +50,7 @@ With date filter (last 7 days):
 
 **Windows (PowerShell):**
 ```
-!powershell -Command "Get-ChildItem -Path $env:USERPROFILE\.claude\projects -Filter *.jsonl -Recurse | Select-Object -First 50 | ForEach-Object { $_.FullName }"
+!powershell -NoProfile -NonInteractive -Command "Get-ChildItem -Path '~\.claude\projects' -Filter *.jsonl -Recurse -File -ErrorAction SilentlyContinue | Where-Object FullName -NotMatch '\\subagents\\' | Sort-Object LastWriteTime -Descending | Select-Object -First 50 -ExpandProperty FullName"
 ```
 
 **If shell execution is NOT permitted** (or user prefers manual):
@@ -58,6 +58,16 @@ With date filter (last 7 days):
 - User pastes selected log excerpts directly into conversation
 
 **Note:** To enable shell commands, users may need to allow them in Claude Code settings. See Claude Code docs on permissions.
+
+**Fallback behavior (automatic):**
+If log discovery fails (no files found, permission denied, or command error):
+1. Report the failure clearly with the exact error
+2. List which sources were attempted and what failed
+3. **Automatically** proceed to git history analysis (do not require confirmation)
+4. Include troubleshooting suggestions in output
+5. **Always** show "Sources Used" footer in final output
+
+To disable git fallback, user can pass `--no-git-fallback` (not yet implemented).
 
 ### Step 2: Read and Redact
 
@@ -126,10 +136,87 @@ Last updated: 2026-01-22
 {"id":"lesson-002","category":"debugging","title":"...","description":"...","confidence":0.8}
 ```
 
+**Required: Sources Used footer in lessons.md:**
+
+Every output MUST include this footer at the end:
+
+```markdown
+---
+## Sources Used
+- Session logs: ✓ (12 files from ~/.claude/projects/)
+- Git history: ✗ (not needed)
+```
+
+If session logs failed:
+
+```markdown
+---
+## Sources Used
+- Session logs: ✗ (discovery failed: [error message])
+- Git history: ✓ (automatic fallback)
+
+⚠️ Lessons quality may be reduced without session logs. See Troubleshooting section.
+Suggested fix: [specific troubleshooting step based on error]
+```
+
+If both sources used:
+
+```markdown
+---
+## Sources Used
+- Session logs: ✓ (5 files, partial - some files unreadable)
+- Git history: ✓ (supplemental)
+```
+
 ## Important Notes
 
 - **Never commit raw logs** - they may contain sensitive data
 - **Review outputs before committing** - redaction is best-effort; `docs/ai/lessons-extractor/*` may still contain sensitive strings
 - Logs are read from `~/.claude/projects/` by default (Claude Code's storage location)
-- Log directories use encoded hashes, not project names
+- Log directories use encoded names (e.g., `c--Users-YourName-Projects-myrepo`), not human-readable project names
 - Use `--since` to limit volume when processing many sessions
+
+## Troubleshooting
+
+### Windows: Commands return empty or wrong paths
+
+If running from Git Bash or another shell that strips `$` characters:
+
+**Symptom:** Command returns `:USERPROFILE\.claude\projects` or similar broken paths.
+
+**Cause:** The outer shell (Git Bash/sh) interprets `$` before PowerShell receives it.
+
+**Solution:** All Windows commands in this skill use `$`-free syntax. If you customized commands and they fail, ensure:
+- Use `~` instead of `$env:USERPROFILE` or `$HOME`
+- Use `Where-Object PropertyName -Operator Value` instead of `Where-Object { $_.Property }`
+- Use `Select-Object -ExpandProperty Name` instead of `ForEach-Object { $_.Name }`
+- Use `-NotMatch '\\subagents\\'` for path filtering (double-escaped backslashes for regex)
+
+**Test your environment:**
+
+```powershell
+# Should output your user profile path (e.g., C:\Users\YourName)
+!powershell -NoProfile -Command "Resolve-Path '~'"
+```
+
+### Log directory not found
+
+Claude Code stores logs at `~/.claude/projects/` with encoded project directory names (e.g., `c--Users-YourName-Projects-myrepo` encoding, not human-readable project names).
+
+**Verify the path exists:**
+
+```bash
+# macOS/Linux
+ls -la ~/.claude/projects/
+```
+
+```powershell
+# Windows (PowerShell)
+!powershell -NoProfile -Command "Get-ChildItem '~\.claude\projects' -ErrorAction SilentlyContinue | Select-Object -First 5 Name"
+```
+
+### Permission errors reading logs
+
+If logs are outside the repo, Claude Code may not have read permission. Options:
+1. User pastes log excerpts directly into conversation
+2. User provides `--log-glob` pointing to copied logs inside repo

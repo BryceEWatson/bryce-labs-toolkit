@@ -104,3 +104,20 @@ Load settings from `config.json` in the skill directory.
 2. **Handle Edge Cases** - Provide fallbacks when features are unavailable
 3. **Include Examples** - Show expected inputs and outputs
 4. **Security Awareness** - Note any data sensitivity concerns
+
+## Validate Skills
+
+Before committing, run the Windows-safety lint check:
+
+```bash
+# Check source skills (this toolkit)
+./tools/lint-skills.sh
+
+# Check installed skills (user's project - all skills)
+./tools/lint-skills.sh .claude/skills
+
+# Check specific installed skill
+./tools/lint-skills.sh .claude/skills/lessons-extractor
+```
+
+This ensures PowerShell commands don't use `$` patterns that break when invoked through Git Bash.
