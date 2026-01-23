@@ -52,8 +52,8 @@ while IFS= read -r -d '' file; do
         # Check for $HOME or $USERPROFILE (fixed-string match)
         if echo "$PS_LINES" | grep -Fq '$HOME' || echo "$PS_LINES" | grep -Fq '$USERPROFILE'; then
             echo "ERROR: $file"
-            echo "$PS_LINES" | grep -F '$HOME' | head -3
-            echo "$PS_LINES" | grep -F '$USERPROFILE' | head -3
+            echo "$PS_LINES" | grep -F '$HOME' | head -3 || true
+            echo "$PS_LINES" | grep -F '$USERPROFILE' | head -3 || true
             echo '  ^ Contains $HOME or $USERPROFILE in PowerShell command'
             echo ""
             ERRORS=$((ERRORS + 1))
