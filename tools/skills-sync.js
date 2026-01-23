@@ -543,7 +543,7 @@ function copySkill(skillName, opts) {
     }
 
     log('verbose', `Deleting existing: ${targetDir}`);
-    fs.rmSync(targetDir, { recursive: true });
+    fs.rmSync(targetDir, { recursive: true, force: true });
   }
 
   // Create target directory
@@ -703,7 +703,7 @@ function uninstallSkill(skillName, opts) {
 
   // Delete
   log('verbose', `Deleting: ${targetDir}`);
-  fs.rmSync(targetDir, { recursive: true });
+  fs.rmSync(targetDir, { recursive: true, force: true });
   log('success', `${skillName}: Uninstalled`);
 }
 

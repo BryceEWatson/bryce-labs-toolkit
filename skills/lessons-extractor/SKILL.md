@@ -43,12 +43,15 @@ Claude Code stores session logs at `~/.claude/projects/**/*.jsonl` (user home di
 !find ~/.claude/projects -name '*.jsonl' -type f | head -50
 ```
 
-With date filter (last 7 days):
+**macOS/Linux with date filter (last 7 days):**
 ```
 !find ~/.claude/projects -name '*.jsonl' -mtime -7 -type f
 ```
 
 **Windows (PowerShell):**
+
+Note: This command sorts by LastWriteTime descending and returns the 50 most recent files. We omit a date-filter example here to keep the command simple and robust under Git Bash; use `--since` for filtering instead.
+
 ```
 !powershell -NoProfile -NonInteractive -Command "Get-ChildItem -Path '~\.claude\projects' -Filter *.jsonl -Recurse -File -ErrorAction SilentlyContinue | Where-Object FullName -NotMatch '\\subagents\\' | Sort-Object LastWriteTime -Descending | Select-Object -First 50 -ExpandProperty FullName"
 ```
