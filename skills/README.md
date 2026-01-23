@@ -105,6 +105,76 @@ Load settings from `config.json` in the skill directory.
 3. **Include Examples** - Show expected inputs and outputs
 4. **Security Awareness** - Note any data sensitivity concerns
 
+## Automated Installation with skills-sync
+
+**Requires:** Node.js >= 14
+
+Use the `skills-sync` tool to install, update, and manage skills from this toolkit:
+
+### List Available Skills
+
+```bash
+./tools/skills-sync --list
+```
+
+### Install a Skill
+
+```bash
+# Unix/macOS/Git Bash
+./tools/skills-sync --project ../MyProject --skill lessons-extractor
+
+# Windows CMD
+tools\skills-sync.cmd --project ..\MyProject --skill lessons-extractor
+```
+
+### Install All Skills
+
+```bash
+./tools/skills-sync --project ../MyProject --all
+```
+
+### Update (Force Reinstall)
+
+```bash
+./tools/skills-sync --project ../MyProject --skill lessons-extractor --force
+```
+
+### Check for Differences
+
+```bash
+./tools/skills-sync --project ../MyProject --all --check
+```
+
+### Dry Run
+
+```bash
+./tools/skills-sync --project ../MyProject --all --dry-run
+```
+
+### Merge Mode (Keep Local Additions)
+
+```bash
+./tools/skills-sync --project ../MyProject --skill lessons-extractor --merge
+```
+
+> **Note:** `--merge` copies files over but does NOT remove stale files in the target.
+> Use `--force` for clean updates. Use `--merge` only if you intentionally keep local additions.
+
+### Uninstall a Skill
+
+```bash
+./tools/skills-sync --project ../MyProject --skill lessons-extractor --uninstall --force
+```
+
+### Stamp File
+
+Each installed skill includes `.installed-from.json` with:
+- Source repository and commit SHA
+- Installation timestamp
+- File hashes for verification
+
+This enables `--check` to detect if the installed version differs from source.
+
 ## Validate Skills
 
 Before committing, run the Windows-safety lint check:

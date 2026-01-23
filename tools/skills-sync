@@ -1,0 +1,6 @@
+#!/bin/sh
+# skills-sync - Claude Code skill installer
+# POSIX shell wrapper for skills-sync.js
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$SCRIPT_DIR/skills-sync.js" "$@"
