@@ -1,0 +1,11 @@
+{"type":"system","timestamp":"2026-01-20T11:00:00.000Z","sessionId":"failure-session-001"}
+{"type":"user","timestamp":"2026-01-20T11:00:01.000Z","content":"Find all session logs"}
+{"type":"assistant","timestamp":"2026-01-20T11:00:02.000Z","content":"I'll search for the log files.","tool_calls":[{"name":"Bash","arguments":{"command":"powershell -Command \"Get-ChildItem | Where-Object { $_.Name -match '.*' }\""}}]}
+{"type":"tool_result","name":"Bash","timestamp":"2026-01-20T11:00:03.000Z","content":"powershell : The term '$_.Name' is not recognized as the name of a cmdlet\nIllegal \\ at end of pattern\nAt line:1 char:1","exit_code":1}
+{"type":"assistant","timestamp":"2026-01-20T11:00:04.000Z","content":"The PowerShell command failed. The $_ variable was stripped by the outer shell.","tool_calls":[{"name":"Bash","arguments":{"command":"powershell -Command \"Get-ChildItem -Filter *.jsonl\""}}]}
+{"type":"tool_result","name":"Bash","timestamp":"2026-01-20T11:00:05.000Z","content":"CommandNotFoundException: The term 'Get-ChildItem' is not recognized (shell mangled the command)","exit_code":1}
+{"type":"assistant","timestamp":"2026-01-20T11:00:06.000Z","content":"Let me try a different approach without PowerShell.","tool_calls":[{"name":"Bash","arguments":{"command":"find ~/.claude/projects -name '*.jsonl' -type f"}}]}
+{"type":"tool_result","name":"Bash","timestamp":"2026-01-20T11:00:07.000Z","content":"/home/user/.claude/projects/abc/session.jsonl\n/home/user/.claude/projects/def/session.jsonl","exit_code":0}
+{"type":"assistant","timestamp":"2026-01-20T11:00:08.000Z","content":"Found the log files. Let me read one.","tool_calls":[{"name":"Read","arguments":{"file_path":"/home/user/.claude/projects/abc/session.jsonl"}}]}
+{"type":"tool_result","name":"Read","timestamp":"2026-01-20T11:00:09.000Z","content":"Output too large: truncated to first 30000 chars. Full output saved to /tmp/claude-output-abc123.txt"}
+{"type":"user","timestamp":"2026-01-20T11:00:10.000Z","content":"OK, that's enough for now"}

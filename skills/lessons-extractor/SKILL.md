@@ -1,7 +1,7 @@
 ---
 name: lessons-extractor
 description: Extracts lessons learned from Claude Code session logs into organized markdown and JSONL files
-argument-hint: "[--since <date>] [--output <dir>] [--log-glob <glob>]"
+argument-hint: "[--since <date>] [--output <dir>] [--full]"
 ---
 
 # lessons-extractor
@@ -12,17 +12,17 @@ Extract reusable lessons from Claude Code session logs.
 
 ```
 /lessons-extractor
-/lessons-extractor --since 2026-01-01
+/lessons-extractor --since 7d
 /lessons-extractor --output docs/ai/custom/
-/lessons-extractor --log-glob "~/.claude/projects/specific-hash/**/*.jsonl"
+/lessons-extractor --full
 ```
 
 ## Arguments
 
 Access via `$ARGUMENTS`:
-- `--since <date>` - Only process logs modified after this date (ISO format). Recommended to limit volume.
+- `--since <date>` - Only process logs modified after this date. Formats: ISO (2026-01-15) or relative (7d, 2w, 1m, 24h).
 - `--output <dir>` - Output directory (default: `docs/ai/lessons-extractor/`)
-- `--log-glob <glob>` - Custom glob pattern for logs (default: `~/.claude/projects/**/*.jsonl`)
+- `--full` - Process all logs, ignoring incremental cursor
 
 ## Configuration
 
@@ -32,80 +32,91 @@ Config file location: `.claude/skills/lessons-extractor/config.json` or `~/.clau
 
 ## Workflow
 
-### Step 1: Locate Logs
+### Step 1: Run Preprocessor
 
-Claude Code stores session logs at `~/.claude/projects/**/*.jsonl` (user home directory). Project directories are **encoded hashes**, not human-readable project names.
+The preprocessor handles cross-platform log discovery, filtering, and truncation. It eliminates shell escaping issues and reduces token usage.
 
-**If shell execution is permitted**, use command injection to find logs:
+**Run the preprocessor using the Bash tool:**
 
-**macOS/Linux:**
-```
-!find ~/.claude/projects -name '*.jsonl' -type f | head -50
-```
-
-**macOS/Linux with date filter (last 7 days):**
-```
-!find ~/.claude/projects -name '*.jsonl' -mtime -7 -type f
+**From repo root (most common):**
+```bash
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --since 7d
 ```
 
-**Windows (PowerShell):**
-
-Note: This command sorts by LastWriteTime descending and returns the 50 most recent files. We omit a date-filter example here to keep the command simple and robust under Git Bash; use `--since` for filtering instead.
-
-```
-!powershell -NoProfile -NonInteractive -Command "Get-ChildItem -Path '~\.claude\projects' -Filter *.jsonl -Recurse -File -ErrorAction SilentlyContinue | Where-Object FullName -NotMatch '\\subagents\\' | Sort-Object LastWriteTime -Descending | Select-Object -First 50 -ExpandProperty FullName"
+**From skill directory:**
+```bash
+cd .claude/skills/lessons-extractor && node bin/lessons-preprocessor.js --since 7d
 ```
 
-**If shell execution is NOT permitted** (or user prefers manual):
-- User provides `--log-glob` with specific path
-- User pastes selected log excerpts directly into conversation
+**With custom output:**
+```bash
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --since 7d --output docs/ai/lessons-extractor/preprocessed.json
+```
 
-**Note:** To enable shell commands, users may need to allow them in Claude Code settings. See Claude Code docs on permissions.
+**Process all logs (ignore cursor):**
+```bash
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --full --verbose
+```
 
-**Fallback behavior (automatic):**
-If log discovery fails (no files found, permission denied, or command error):
-1. Report the failure clearly with the exact error
-2. List which sources were attempted and what failed
-3. **Automatically** proceed to git history analysis (do not require confirmation)
-4. Include troubleshooting suggestions in output
-5. **Always** show "Sources Used" footer in final output
+The preprocessor will:
+- Discover logs in `~/.claude/projects/` (cross-platform, no shell)
+- Filter out subagent logs and `agent-*.jsonl` files
+- Skip sessions that are running this extractor (avoids noise)
+- Apply sampling strategy (first N + last M + error windows)
+- Truncate large content fields
+- Apply redaction patterns
+- Extract tool failures as first-class data
+- Output a compact JSON file for analysis
 
-To disable git fallback, user can pass `--no-git-fallback` (not yet implemented).
+**Preprocessor output location:** `docs/ai/lessons-extractor/preprocessed.json` (default)
 
-### Step 2: Read and Redact
+**If preprocessor fails:**
+1. Check that Node.js is installed (`node --version`)
+2. Verify the skill is installed (`ls .claude/skills/lessons-extractor/bin/`)
+3. Run with `--verbose` to see detailed output
+4. Fall back to manual log excerpts if needed
 
-For each log file, read contents and apply redaction patterns before processing.
+### Step 2: Read Preprocessed Data
 
-**If file access is blocked** (logs outside repo), ask the user to paste relevant JSONL excerpts (already-redacted if possible) and continue from there.
+Read the preprocessor output file:
 
-Apply redaction to remove:
-- API keys, tokens, passwords, secrets
-- Absolute paths containing usernames
-- Any patterns matching config redact rules
+```
+Read: docs/ai/lessons-extractor/preprocessed.json
+```
 
-Use these default redaction patterns:
-- `(?i)api[_-]?key` followed by values
-- `(?i)password` followed by values
-- `(?i)secret` followed by values
-- `(?i)token` followed by values
-- `/Users/<username>/` paths
-- `/home/<username>/` paths
-- `C:\Users\<username>\` paths
+The output contains:
+- `summary` - Processing statistics (logs processed, events sampled, tool failures found)
+- `sessions[]` - Array of processed sessions with:
+  - `sessionId` - Unique session identifier
+  - `logPath` - Original log file path
+  - `events[]` - Sampled and truncated events
+  - `toolFailures[]` - Detected tool failures with error details
+  - `evidence[]` - Short excerpts with timestamps for lesson attribution
 
 ### Step 3: Summarize Sessions
 
-For each session log, apply the summarize_run prompt:
+For each session in the preprocessed data, apply the summarize_run prompt:
 - Identify: what task was attempted, what worked, what didn't
 - Extract: key decisions, tool usage patterns, error recovery
 - Note: any surprising behaviors or gotchas
+
+**Important:** When tool failures are present, prioritize documenting:
+- The symptom (what failed and how)
+- The context (what was being attempted)
+- The resolution (how it was fixed, or if it wasn't)
 
 ### Step 4: Extract Lessons
 
 Apply the extract_lessons prompt to summarized sessions:
 - Identify reusable patterns and anti-patterns
-- Categorize: workflow, debugging, architecture, tool-specific
+- Categorize: workflow, debugging, architecture, tool-specific, windows-compatibility
 - Rate confidence/applicability (0.0-1.0)
 - Include concrete examples where helpful
+
+**Tool failures are first-class lesson candidates:**
+- Pattern-match failures across sessions
+- Extract debugging approaches that worked
+- Note platform-specific gotchas (especially Windows/Git Bash issues)
 
 ### Step 5: Merge and Deduplicate
 
@@ -125,18 +136,28 @@ Write to output directory (default `docs/ai/lessons-extractor/`):
 
 Last updated: 2026-01-22
 
+## Run Efficiency Findings
+
+- Logs processed: 12
+- Events sampled: 156 (from 847 total)
+- Tool failures analyzed: 8
+- Extractor sessions skipped: 2
+
 ## Workflow
 - Lesson 1...
 - Lesson 2...
 
 ## Debugging
 ...
+
+## Windows Compatibility
+...
 ```
 
 **docs/ai/lessons-extractor/lessons.jsonl** - Machine-readable:
 ```jsonl
-{"id":"lesson-001","category":"workflow","title":"...","description":"...","confidence":0.9}
-{"id":"lesson-002","category":"debugging","title":"...","description":"...","confidence":0.8}
+{"id":"lesson-001","category":"workflow","title":"...","description":"...","confidence":0.9,"evidence":{"sessionId":"abc","timestamp":"2026-01-20T10:15:32Z"}}
+{"id":"lesson-002","category":"debugging","title":"...","description":"...","confidence":0.8,"evidence":{"sessionId":"def","timestamp":"2026-01-20T11:30:00Z"}}
 ```
 
 **Required: Sources Used footer in lessons.md:**
@@ -146,80 +167,84 @@ Every output MUST include this footer at the end:
 ```markdown
 ---
 ## Sources Used
+- Preprocessor: ✓ (v1.0.0)
 - Session logs: ✓ (12 files from ~/.claude/projects/)
-- Git history: ✗ (not needed)
+- Tool failures: 8 extracted
 ```
 
-If session logs failed:
+If preprocessor was not used (fallback):
 
 ```markdown
 ---
 ## Sources Used
-- Session logs: ✗ (discovery failed: [error message])
-- Git history: ✓ (automatic fallback)
-
-⚠️ Lessons quality may be reduced without session logs. See Troubleshooting section.
-Suggested fix: [specific troubleshooting step based on error]
-```
-
-If both sources used:
-
-```markdown
----
-## Sources Used
-- Session logs: ✓ (5 files, partial - some files unreadable)
+- Preprocessor: ✗ (not available)
+- Session logs: ✓ (manual discovery)
 - Git history: ✓ (supplemental)
+
+⚠️ Lessons quality may be reduced without preprocessor. Consider installing Node.js.
 ```
 
 ## Important Notes
 
 - **Never commit raw logs** - they may contain sensitive data
-- **Review outputs before committing** - redaction is best-effort; `docs/ai/lessons-extractor/*` may still contain sensitive strings
+- **Review outputs before committing** - redaction is best-effort
 - Logs are read from `~/.claude/projects/` by default (Claude Code's storage location)
-- Log directories use encoded names (e.g., `c--Users-YourName-Projects-myrepo`), not human-readable project names
+- Log directories use encoded names (e.g., `c--Users-YourName-Projects-myrepo`)
 - Use `--since` to limit volume when processing many sessions
+- The preprocessor automatically skips its own sessions to avoid noise
 
 ## Troubleshooting
 
-### Windows: Commands return empty or wrong paths
+### Preprocessor not found
 
-If running from Git Bash or another shell that strips `$` characters:
+If the preprocessor script is not found:
 
-**Symptom:** Command returns `:USERPROFILE\.claude\projects` or similar broken paths.
+1. Verify the skill is installed:
+   ```bash
+   ls .claude/skills/lessons-extractor/bin/
+   ```
 
-**Cause:** The outer shell (Git Bash/sh) interprets `$` before PowerShell receives it.
+2. Check Node.js is available:
+   ```bash
+   node --version
+   ```
 
-**Solution:** All Windows commands in this skill use `$`-free syntax. If you customized commands and they fail, ensure:
-- Use `~` instead of `$env:USERPROFILE` or `$HOME`
-- Use `Where-Object PropertyName -Operator Value` instead of `Where-Object { $_.Property }`
-- Use `Select-Object -ExpandProperty Name` instead of `ForEach-Object { $_.Name }`
-- Use `-NotMatch '\\subagents\\'` for path filtering (double-escaped backslashes for regex)
+3. Run the preprocessor directly:
+   ```bash
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --help
+   ```
 
-**Test your environment:**
+### No logs found
 
-```powershell
-# Should output your user profile path (e.g., C:\Users\YourName)
-!powershell -NoProfile -Command "Resolve-Path '~'"
-```
+If the preprocessor reports no logs:
 
-### Log directory not found
+1. Check the log directory exists:
+   ```bash
+   ls ~/.claude/projects/
+   ```
 
-Claude Code stores logs at `~/.claude/projects/` with encoded project directory names (e.g., `c--Users-YourName-Projects-myrepo` encoding, not human-readable project names).
+2. Try without date filter:
+   ```bash
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --full --verbose
+   ```
 
-**Verify the path exists:**
+3. The preprocessor will show detailed discovery output with `--verbose`
 
-```bash
-# macOS/Linux
-ls -la ~/.claude/projects/
-```
+### Windows-specific issues
 
-```powershell
-# Windows (PowerShell)
-!powershell -NoProfile -Command "Get-ChildItem '~\.claude\projects' -ErrorAction SilentlyContinue | Select-Object -First 5 Name"
-```
+The preprocessor eliminates most Windows/Git Bash issues by using Node.js instead of shell commands. If you still encounter problems:
 
-### Permission errors reading logs
+1. Ensure you're using forward slashes or let Node.js handle path resolution
+2. The `~` expansion works cross-platform in the preprocessor
+3. Run `--self-test` to verify the preprocessor works on your system:
+   ```bash
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --self-test
+   ```
 
-If logs are outside the repo, Claude Code may not have read permission. Options:
-1. User pastes log excerpts directly into conversation
-2. User provides `--log-glob` pointing to copied logs inside repo
+### Permission errors
+
+If logs are outside the repo and Claude Code cannot read them:
+
+1. Run the preprocessor manually in a terminal with appropriate permissions
+2. Copy the `preprocessed.json` output into the repo
+3. Continue from Step 2 (Read Preprocessed Data)
