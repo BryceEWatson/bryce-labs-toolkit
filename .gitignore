@@ -24,7 +24,11 @@ build/
 Thumbs.db
 
 # Claude Code logs (never commit)
+# Local .claude directory
 .claude/projects/
+# Catch any copied/pasted log directories
+**/.claude/projects/
+**/claude-code-logs/
 
 # Lesson outputs (review before committing)
 # Uncomment if you want to exclude by default:

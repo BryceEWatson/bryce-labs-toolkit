@@ -61,10 +61,14 @@ With date filter (last 7 days):
 
 ### Step 2: Read and Redact
 
-For each log file, read contents and apply redaction patterns before processing:
-- Remove API keys, tokens, passwords, secrets
-- Remove absolute paths containing usernames
-- Remove any patterns matching config redact rules
+For each log file, read contents and apply redaction patterns before processing.
+
+**If file access is blocked** (logs outside repo), ask the user to paste relevant JSONL excerpts (already-redacted if possible) and continue from there.
+
+Apply redaction to remove:
+- API keys, tokens, passwords, secrets
+- Absolute paths containing usernames
+- Any patterns matching config redact rules
 
 Use these default redaction patterns:
 - `(?i)api[_-]?key` followed by values
