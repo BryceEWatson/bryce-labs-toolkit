@@ -28,7 +28,7 @@ Access via `$ARGUMENTS`:
 
 If `config.json` exists in the skill directory, load settings from it. Otherwise use defaults.
 
-Config file location: `.claude/skills/lessons-extractor/config.json` or `~/.claude/skills/lessons-extractor/config.json`
+Config file location: `.claude/skills/lessons-extractor/config.json` (relative to repo root after skill installation)
 
 ## Workflow
 

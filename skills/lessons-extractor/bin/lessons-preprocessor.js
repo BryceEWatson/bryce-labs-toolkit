@@ -668,6 +668,12 @@ function readCursor(cursorPath) {
  * Write cursor file after processing
  */
 function writeCursor(cursorPath, processedFiles, maxRecent = DEFAULTS.maxRecentFiles) {
+  // Guard: skip writing cursor if no files processed
+  if (!processedFiles || processedFiles.length === 0) {
+    log('verbose', 'No files processed, skipping cursor update');
+    return;
+  }
+
   const recentFiles = processedFiles
     .slice(0, maxRecent)
     .map(f => ({
@@ -720,9 +726,12 @@ function computePerSessionBudget(sessionCount, config) {
   const perSessionBytes = Math.floor(availableBytes / Math.max(1, sessionCount));
 
   const truncateLength = config.truncateContentLength ?? DEFAULTS.truncateContentLength;
-  const maxEventsPerSession = Math.min(
-    config.maxEventsPerLog ?? DEFAULTS.maxEventsPerLog,
-    Math.floor(perSessionBytes / (truncateLength * 2))
+  const computedEvents = Math.floor(perSessionBytes / (truncateLength * 2));
+
+  // Clamp to minimum of 10 events per session (never zero)
+  const maxEventsPerSession = Math.max(
+    10,
+    Math.min(config.maxEventsPerLog ?? DEFAULTS.maxEventsPerLog, computedEvents)
   );
 
   return { perSessionBytes, maxEventsPerSession };
