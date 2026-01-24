@@ -8,34 +8,43 @@ A collection of reusable Claude Code skills, tools, and templates for AI-assiste
 
 - **[lessons-extractor](skills/lessons-extractor/)** - Extract lessons learned from Claude Code session logs into organized markdown and JSONL files
 
-## Install
+### Tools
 
-### As Project Skill
+- **[skills-sync](tools/skills-sync.js)** - Install and update skills to target projects
+- **[lint-skills](tools/lint-skills.sh)** - Lint skills for Windows-unsafe patterns
 
-Copy to your project's `.claude/skills/` directory:
+## Install Skills
 
-```bash
-# Clone this repo, then:
-cp -r skills/lessons-extractor /path/to/your-project/.claude/skills/
-```
+### Using skills-sync (Recommended)
 
-The skill is now available in that project as `/lessons-extractor`.
-
-### As Personal Skill
-
-Copy to your personal Claude Code skills directory (available in all projects):
+The `skills-sync` tool handles installation, updates, and verification:
 
 ```bash
-# macOS/Linux
-cp -r skills/lessons-extractor ~/.claude/skills/
+# Clone this repo
+git clone https://github.com/BryceEWatson/bryce-labs-toolkit.git
+cd bryce-labs-toolkit
 
-# Windows (PowerShell)
-Copy-Item -Recurse skills\lessons-extractor $env:USERPROFILE\.claude\skills\
+# List available skills
+node tools/skills-sync.js --list
+
+# Install a skill to your project
+node tools/skills-sync.js --project /path/to/your-project --skill lessons-extractor
+
+# Install all skills
+node tools/skills-sync.js --project /path/to/your-project --all
+
+# Check if installed skills are up to date
+node tools/skills-sync.js --project /path/to/your-project --all --check
+
+# Force update (clean install)
+node tools/skills-sync.js --project /path/to/your-project --skill lessons-extractor --force
 ```
+
+Skills are installed to `<project>/.claude/skills/<skill-name>/` and become available as `/<skill-name>` in Claude Code.
 
 ### Symlink (Development)
 
-For active development, symlink instead of copy:
+For active development on the toolkit itself, symlink instead of copy:
 
 ```bash
 # macOS/Linux
@@ -45,20 +54,15 @@ ln -s /path/to/bryce-labs-toolkit/skills/lessons-extractor ~/.claude/skills/less
 New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.claude\skills\lessons-extractor" -Target "C:\path\to\bryce-labs-toolkit\skills\lessons-extractor"
 ```
 
-### Permissions Note
-
-The skill uses shell command injection (`!find ...` / `!powershell ...`) to locate log files. If this is blocked by your Claude Code settings, you can:
-
-1. Allow the necessary commands in Claude Code settings
-2. Use `--log-glob` to specify paths manually
-3. Paste log excerpts directly into the conversation
-
 ## Repository Structure
 
 ```
 bryce-labs-toolkit/
   skills/                 # Claude Code skills
     lessons-extractor/    # Log reflection skill
+  tools/                  # CLI tools
+    skills-sync.js        # Skill installer
+    lint-skills.sh        # Windows-safety linter
   docs/                   # Documentation
 ```
 
