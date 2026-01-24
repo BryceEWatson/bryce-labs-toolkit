@@ -10,7 +10,7 @@ A collection of reusable Claude Code skills, tools, and templates for AI-assiste
 
 ### Tools
 
-- **[skills-sync](tools/skills-sync.js)** - Install and update skills to target projects
+- **[skills-sync](tools/)** - Install and update skills to target projects (cross-platform wrappers included)
 - **[lint-skills](tools/lint-skills.sh)** - Lint skills for Windows-unsafe patterns
 
 ## Install Skills
@@ -25,33 +25,40 @@ git clone https://github.com/BryceEWatson/bryce-labs-toolkit.git
 cd bryce-labs-toolkit
 
 # List available skills
-node tools/skills-sync.js --list
+./tools/skills-sync --list
 
 # Install a skill to your project
-node tools/skills-sync.js --project /path/to/your-project --skill lessons-extractor
+./tools/skills-sync --project /path/to/your-project --skill lessons-extractor
 
 # Install all skills
-node tools/skills-sync.js --project /path/to/your-project --all
+./tools/skills-sync --project /path/to/your-project --all
 
 # Check if installed skills are up to date
-node tools/skills-sync.js --project /path/to/your-project --all --check
+./tools/skills-sync --project /path/to/your-project --all --check
 
 # Force update (clean install)
-node tools/skills-sync.js --project /path/to/your-project --skill lessons-extractor --force
+./tools/skills-sync --project /path/to/your-project --skill lessons-extractor --force
+```
+
+On Windows (CMD/PowerShell):
+
+```bat
+tools\skills-sync.cmd --list
+tools\skills-sync.cmd --project C:\path\to\your-project --skill lessons-extractor
 ```
 
 Skills are installed to `<project>/.claude/skills/<skill-name>/` and become available as `/<skill-name>` in Claude Code.
 
 ### Symlink (Development)
 
-For active development on the toolkit itself, symlink instead of copy:
+For active development on the toolkit itself, symlink into your target project:
 
 ```bash
 # macOS/Linux
-ln -s /path/to/bryce-labs-toolkit/skills/lessons-extractor ~/.claude/skills/lessons-extractor
+ln -s /path/to/bryce-labs-toolkit/skills/lessons-extractor /path/to/your-project/.claude/skills/lessons-extractor
 
 # Windows (PowerShell - requires admin)
-New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.claude\skills\lessons-extractor" -Target "C:\path\to\bryce-labs-toolkit\skills\lessons-extractor"
+New-Item -ItemType SymbolicLink -Path "C:\path\to\your-project\.claude\skills\lessons-extractor" -Target "C:\path\to\bryce-labs-toolkit\skills\lessons-extractor"
 ```
 
 ## Repository Structure
@@ -61,7 +68,9 @@ bryce-labs-toolkit/
   skills/                 # Claude Code skills
     lessons-extractor/    # Log reflection skill
   tools/                  # CLI tools
-    skills-sync.js        # Skill installer
+    skills-sync           # POSIX wrapper
+    skills-sync.cmd       # Windows wrapper
+    skills-sync.js        # Main script
     lint-skills.sh        # Windows-safety linter
   docs/                   # Documentation
 ```
