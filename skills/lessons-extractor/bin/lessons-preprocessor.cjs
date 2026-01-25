@@ -1326,7 +1326,14 @@ async function main() {
     if (opts.maxLogs) config.maxLogsPerRun = opts.maxLogs;
 
     // Resolve output directory: CLI --output-dir > config.outputDir > default
-    const outputDir = expandPath(opts.outputDir || config.outputDir || DEFAULTS.outputDir);
+    // Anchor relative paths to repo root so it works regardless of CWD
+    const repoRoot = findRepoRoot(process.cwd());
+    let outputDir = expandPath(opts.outputDir || config.outputDir || DEFAULTS.outputDir);
+    if (!path.isAbsolute(outputDir)) {
+      outputDir = path.join(repoRoot, outputDir);
+    }
+    log('verbose', `Repo root: ${repoRoot}`);
+    log('verbose', `Output directory: ${outputDir}`);
 
     // Handle --clear mode
     if (opts.clear) {
@@ -1346,8 +1353,11 @@ async function main() {
       log('verbose', `Compiled ${compiledRedactions.length} redaction patterns`);
     }
 
-    // Determine output path
-    const outputPath = opts.output || path.join(outputDir, 'preprocessed.json');
+    // Determine output path (also anchor relative --output to repo root)
+    let outputPath = opts.output || path.join(outputDir, 'preprocessed.json');
+    if (opts.output && !path.isAbsolute(opts.output)) {
+      outputPath = path.join(repoRoot, opts.output);
+    }
 
     // Load cursor (unless --full)
     let cursor = null;
