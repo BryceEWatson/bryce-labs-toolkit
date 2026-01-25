@@ -1,2 +1,2 @@
 @echo off
-node "%~dp0lessons-preprocessor.js" %*
+node "%~dp0lessons-preprocessor.cjs" %*

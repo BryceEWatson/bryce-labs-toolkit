@@ -1,4 +1,4 @@
 #!/bin/sh
 # POSIX shell wrapper for lessons-preprocessor
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec node "$SCRIPT_DIR/lessons-preprocessor.js" "$@"
+exec node "$SCRIPT_DIR/lessons-preprocessor.cjs" "$@"

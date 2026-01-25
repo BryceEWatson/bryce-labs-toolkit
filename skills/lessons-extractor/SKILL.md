@@ -1,7 +1,7 @@
 ---
 name: lessons-extractor
 description: Extracts lessons learned from Claude Code session logs into organized markdown and JSONL files
-argument-hint: "[--since <date>] [--output <dir>] [--full]"
+argument-hint: "[--since <date>] [--output <dir>] [--full] [--clear]"
 ---
 
 # lessons-extractor
@@ -15,6 +15,8 @@ Extract reusable lessons from Claude Code session logs.
 /lessons-extractor --since 7d
 /lessons-extractor --output docs/ai/custom/
 /lessons-extractor --full
+/lessons-extractor --clear
+/lessons-extractor --clear --since 7d
 ```
 
 ## Arguments
@@ -23,6 +25,7 @@ Access via `$ARGUMENTS`:
 - `--since <date>` - Only process logs modified after this date. Formats: ISO (2026-01-15) or relative (7d, 2w, 1m, 24h).
 - `--output <dir>` - Output directory (default: `docs/ai/lessons-extractor/`)
 - `--full` - Process all logs, ignoring incremental cursor
+- `--clear` - Clear existing outputs before generating fresh lessons
 
 ## Configuration
 
@@ -32,30 +35,64 @@ Config file location: `.claude/skills/lessons-extractor/config.json` (relative t
 
 ## Workflow
 
+### Step 0: Handle --clear (if requested)
+
+If `$ARGUMENTS` contains `--clear`:
+
+1. **Parse output directory** from `$ARGUMENTS`:
+   - If `--output <dir>` is present, use that directory
+   - Otherwise use default: `docs/ai/lessons-extractor/`
+
+2. **Run clear command** (removes existing outputs):
+   ```bash
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --clear --output-dir <dir>
+   ```
+
+3. **Continue to Step 1** with remaining arguments (excluding `--clear`):
+   - This ensures fresh lessons are generated after clearing
+   - Example: `/lessons-extractor --clear --since 7d` → clear, then preprocess with `--since 7d`
+
+**Important:** Do NOT pass `--clear` to Step 1. The clear happens here, then Step 1 runs preprocessing normally.
+
+**Dry-run preview:**
+```bash
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --clear --output-dir docs/ai/lessons-extractor --dry-run
+```
+
 ### Step 1: Run Preprocessor
 
 The preprocessor handles cross-platform log discovery, filtering, and truncation. It eliminates shell escaping issues and reduces token usage.
 
-**Run the preprocessor using the Bash tool:**
+**Build the command from parsed arguments** (do NOT include `--clear`):
+
+```bash
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs [--since <date>] [--output-dir <dir>] [--full]
+```
+
+**Map skill arguments to preprocessor flags:**
+- Skill `--since <date>` → Preprocessor `--since <date>`
+- Skill `--output <dir>` → Preprocessor `--output-dir <dir>`
+- Skill `--full` → Preprocessor `--full`
+- Skill `--clear` → Already handled in Step 0, do NOT pass here
 
 **From repo root (most common):**
 ```bash
-node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --since 7d
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --since 7d
 ```
 
 **From skill directory:**
 ```bash
-cd .claude/skills/lessons-extractor && node bin/lessons-preprocessor.js --since 7d
+cd .claude/skills/lessons-extractor && node bin/lessons-preprocessor.cjs --since 7d
 ```
 
-**With custom output:**
+**With custom output directory:**
 ```bash
-node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --since 7d --output docs/ai/lessons-extractor/preprocessed.json
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --since 7d --output-dir docs/ai/lessons-extractor
 ```
 
 **Process all logs (ignore cursor):**
 ```bash
-node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --full --verbose
+node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --full --verbose
 ```
 
 The preprocessor will:
@@ -211,7 +248,7 @@ If the preprocessor script is not found:
 
 3. Run the preprocessor directly:
    ```bash
-   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --help
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --help
    ```
 
 ### No logs found
@@ -225,7 +262,7 @@ If the preprocessor reports no logs:
 
 2. Try without date filter:
    ```bash
-   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --full --verbose
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --full --verbose
    ```
 
 3. The preprocessor will show detailed discovery output with `--verbose`
@@ -238,7 +275,7 @@ The preprocessor eliminates most Windows/Git Bash issues by using Node.js instea
 2. The `~` expansion works cross-platform in the preprocessor
 3. Run `--self-test` to verify the preprocessor works on your system:
    ```bash
-   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.js --self-test
+   node .claude/skills/lessons-extractor/bin/lessons-preprocessor.cjs --self-test
    ```
 
 ### Permission errors

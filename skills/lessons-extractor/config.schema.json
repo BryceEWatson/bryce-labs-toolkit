@@ -14,7 +14,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Regex patterns for sensitive data to redact before processing",
+      "description": "Regex patterns for data to redact. Plain strings use 'gi' flags. Use /pattern/flags syntax for custom flags (e.g., '/secret/i').",
       "default": [
         "api[_-]?key[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
         "password[\"']?\\s*[:=]\\s*[\"']?[^\\s\"']+",

@@ -10,9 +10,9 @@
  * - Supports incremental processing via cursor
  *
  * Usage:
- *   node lessons-preprocessor.js --since 7d
- *   node lessons-preprocessor.js --full --verbose
- *   node lessons-preprocessor.js --self-test
+ *   node lessons-preprocessor.cjs --since 7d
+ *   node lessons-preprocessor.cjs --full --verbose
+ *   node lessons-preprocessor.cjs --self-test
  */
 
 const fs = require('fs');
@@ -68,7 +68,7 @@ const ERROR_PATTERNS = [
   /error:|Error:|ERROR:/i
 ];
 
-// Default redaction patterns (case-insensitive flag applied via 'gi' in applyRedaction)
+// Default redaction patterns (compiled once at startup via compileRedactions)
 const DEFAULT_REDACT_PATTERNS = [
   'api[_-]?key["\']?\\s*[:=]\\s*["\']?[\\w-]+',
   'password["\']?\\s*[:=]\\s*["\']?[^\\s"\',]+',
@@ -78,6 +78,49 @@ const DEFAULT_REDACT_PATTERNS = [
   '/home/[^/]+/',
   'C:\\\\Users\\\\[^\\\\]+\\\\'
 ];
+
+/**
+ * Compile redaction patterns once at startup
+ * Supports: plain patterns (uses 'gi') or /pattern/flags syntax
+ * @param {string[]} patterns
+ * @returns {{ regexes: Array<{regex: RegExp, source: string}>, warnings: string[] }}
+ */
+function compileRedactions(patterns) {
+  const regexes = [];
+  const warnings = [];
+
+  for (const pattern of patterns) {
+    try {
+      let regex;
+      // Check for /pattern/flags syntax - find LAST slash to handle patterns containing /
+      if (pattern.startsWith('/') && pattern.length > 1) {
+        const lastSlash = pattern.lastIndexOf('/');
+        if (lastSlash > 0) {
+          const body = pattern.slice(1, lastSlash);
+          const flags = pattern.slice(lastSlash + 1);
+          // Validate flags are all valid regex flags
+          if (/^[gimsuy]*$/.test(flags)) {
+            regex = new RegExp(body, flags || 'gi');
+          } else {
+            // Invalid flags, treat as plain pattern
+            regex = new RegExp(pattern, 'gi');
+          }
+        } else {
+          // No closing slash, treat as plain pattern
+          regex = new RegExp(pattern, 'gi');
+        }
+      } else {
+        // Plain pattern - use default 'gi' flags
+        regex = new RegExp(pattern, 'gi');
+      }
+      regexes.push({ regex, source: pattern });
+    } catch (e) {
+      warnings.push(`Invalid redaction pattern: ${pattern} (${e.message})`);
+    }
+  }
+
+  return { regexes, warnings };
+}
 
 // ============================================================================
 // Logging
@@ -100,6 +143,126 @@ function log(level, message) {
 
   const prefix = prefixes[level] || '';
   console.log(`${prefix} ${message}`);
+}
+
+// ============================================================================
+// Repository Root Detection & Safety
+// ============================================================================
+
+/**
+ * Find the repository root by walking up from a starting directory
+ * Looks for .git directory or package.json as markers
+ * Falls back to deriving from skill path if installed at <repo>/.claude/skills/<skill>
+ */
+function findRepoRoot(startDir) {
+  let dir = path.resolve(startDir);
+  const root = path.parse(dir).root;
+
+  while (dir !== root) {
+    // Check for .git directory (most reliable)
+    if (fs.existsSync(path.join(dir, '.git'))) {
+      return dir;
+    }
+    // Check for package.json as fallback
+    if (fs.existsSync(path.join(dir, 'package.json'))) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+
+  // Fallback: derive from skill location if we're inside .claude/skills/
+  const skillRoot = getSkillRoot();
+  const claudeMatch = skillRoot.match(/^(.+)[/\\]\.claude[/\\]skills[/\\]/);
+  if (claudeMatch) {
+    return claudeMatch[1];
+  }
+
+  // Last resort: use cwd
+  return process.cwd();
+}
+
+/**
+ * Validate output directory is safe to clear
+ * Must be inside repo root, not root/home/system dirs
+ */
+function isOutputDirSafe(outputDir) {
+  const resolved = path.resolve(outputDir);
+
+  // Reject filesystem root
+  if (resolved === '/' || /^[A-Za-z]:[\\/]?$/.test(resolved)) {
+    return { safe: false, reason: 'Cannot clear filesystem root' };
+  }
+
+  // Reject home directory
+  if (resolved === os.homedir()) {
+    return { safe: false, reason: 'Cannot clear home directory' };
+  }
+
+  // Find repo root (works even if cwd is inside .claude/skills/...)
+  const repoRoot = findRepoRoot(process.cwd());
+
+  // Reject repo root itself
+  if (resolved === repoRoot) {
+    return { safe: false, reason: 'Cannot clear repository root' };
+  }
+
+  // Must be INSIDE the repo root
+  const resolvedNorm = resolved.replace(/\\/g, '/');
+  const repoRootNorm = repoRoot.replace(/\\/g, '/');
+  if (!resolvedNorm.startsWith(repoRootNorm + '/')) {
+    return { safe: false, reason: 'Output directory must be inside the repository' };
+  }
+
+  return { safe: true, reason: null };
+}
+
+/**
+ * Clear generated lesson files from output directory
+ */
+function clearOutputFiles(outputDir, opts) {
+  const resolved = path.resolve(outputDir);
+
+  const safety = isOutputDirSafe(resolved);
+  if (!safety.safe) {
+    throw new Error(`Refusing to clear ${resolved}: ${safety.reason}`);
+  }
+
+  const filesToClear = [
+    'lessons.md',
+    'lessons.jsonl',
+    'preprocessed.json',
+    '.lessons-cursor.json'
+  ];
+
+  const deleted = [];
+
+  for (const filename of filesToClear) {
+    const filePath = path.join(resolved, filename);
+
+    if (opts.dryRun) {
+      if (fs.existsSync(filePath)) {
+        log('info', `[DRY-RUN] Would delete: ${filePath}`);
+        deleted.push(filename);
+      }
+      continue;
+    }
+
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        deleted.push(filename);
+        log('verbose', `Deleted: ${filePath}`);
+      }
+    } catch (err) {
+      log('warn', `Could not delete ${filePath}: ${err.message}`);
+    }
+  }
+
+  if (deleted.length > 0) {
+    log('success', `Cleared ${deleted.length} file(s): ${deleted.join(', ')}`);
+  } else {
+    log('info', 'No files to clear (directory already clean)');
+  }
 }
 
 // ============================================================================
@@ -452,9 +615,11 @@ function extractToolFailures(events) {
 // ============================================================================
 
 /**
- * Apply redaction patterns (regex-safe with try/catch)
+ * Apply pre-compiled redaction patterns
+ * @param {object} obj - Object with text, error, command fields
+ * @param {Array<{regex: RegExp, source: string}>} compiledRegexes - Pre-compiled regexes from compileRedactions()
  */
-function applyRedaction(obj, patterns) {
+function applyRedaction(obj, compiledRegexes) {
   if (!obj) return obj;
 
   const result = { ...obj };
@@ -464,13 +629,9 @@ function applyRedaction(obj, patterns) {
     if (!result[field]) continue;
 
     let redacted = result[field];
-    for (const pattern of patterns) {
-      try {
-        const regex = new RegExp(pattern, 'gi');
-        redacted = redacted.replace(regex, '[REDACTED]');
-      } catch (e) {
-        log('warn', `Invalid redaction pattern skipped: ${pattern}`);
-      }
+    for (const { regex } of compiledRegexes) {
+      regex.lastIndex = 0; // Reset for global regex
+      redacted = redacted.replace(regex, '[REDACTED]');
     }
     result[field] = redacted;
   }
@@ -529,8 +690,11 @@ function truncateEvent(event, maxLength) {
 
 /**
  * Process a single log file
+ * @param {string} filePath - Path to the log file
+ * @param {object} config - Configuration object
+ * @param {Array<{regex: RegExp, source: string}>} compiledRedactions - Pre-compiled redaction regexes
  */
-async function processLogFile(filePath, config, redactPatterns) {
+async function processLogFile(filePath, config, compiledRedactions) {
   const allEvents = [];
   const toolFailureIndices = [];
 
@@ -616,7 +780,7 @@ async function processLogFile(filePath, config, redactPatterns) {
   // Extract evidence snippets BEFORE truncation
   const evidenceSnippets = toolFailureIndices.map(idx => {
     const event = allEvents[idx];
-    const redacted = applyRedaction(event, redactPatterns);
+    const redacted = applyRedaction(event, compiledRedactions);
     return {
       sessionId,
       timestamp: event.timestamp,
@@ -628,12 +792,12 @@ async function processLogFile(filePath, config, redactPatterns) {
   const truncateLength = config.truncateContentLength ?? DEFAULTS.truncateContentLength;
   const sampledEvents = keepIndices.map(i => {
     let event = allEvents[i];
-    event = applyRedaction(event, redactPatterns);
+    event = applyRedaction(event, compiledRedactions);
     return truncateEvent(event, truncateLength);
   });
 
   // Extract and redact tool failures
-  const toolFailures = extractToolFailures(allEvents).map(f => applyRedaction(f, redactPatterns));
+  const toolFailures = extractToolFailures(allEvents).map(f => applyRedaction(f, compiledRedactions));
 
   return {
     sessionId,
@@ -778,8 +942,10 @@ function parseArgs(argv) {
   const opts = {
     since: null,
     output: null,
+    outputDir: null,  // NEW: directory for outputs (distinct from --output file path)
     maxLogs: null,
     full: false,
+    clear: false,     // NEW: clear generated files
     dryRun: false,
     verbose: false,
     config: null,
@@ -821,6 +987,12 @@ function parseArgs(argv) {
       case '--cursor':
         opts.cursor = args[++i];
         break;
+      case '--output-dir':
+        opts.outputDir = args[++i];
+        break;
+      case '--clear':
+        opts.clear = true;
+        break;
       case '--self-test':
         opts.selfTest = true;
         break;
@@ -843,20 +1015,24 @@ function printHelp() {
 lessons-preprocessor v${TOOL_VERSION} - Pre-process Claude Code session logs
 
 USAGE:
-  node lessons-preprocessor.js [options]
+  node lessons-preprocessor.cjs [options]
 
 OPTIONS:
   --since, -s <date>   Only logs modified after date
                        Formats: ISO (2026-01-15), relative (7d, 2w, 1m, 24h)
 
-  --output, -o <path>  Output JSON file
-                       Default: <outputDir>/preprocessed.json
+  --output-dir <dir>   Output directory for all generated files
+                       Default: ${DEFAULTS.outputDir}
+
+  --output, -o <path>  Output file path (deprecated, use --output-dir)
 
   --max-logs <n>       Max logs to process (default: ${DEFAULTS.maxLogsPerRun})
 
   --full, -f           Ignore cursor, process all matching logs
 
-  --dry-run, -n        Show what would be processed
+  --clear              Delete generated files from output directory
+
+  --dry-run, -n        Show what would be processed (or deleted with --clear)
 
   --verbose, -v        Show detailed output
 
@@ -868,6 +1044,11 @@ OPTIONS:
 
   --help, -h           Show this help
 
+CLEAR MODE:
+  --clear removes: lessons.md, lessons.jsonl, preprocessed.json, .lessons-cursor.json
+  Directory: --output-dir > config.outputDir > default (${DEFAULTS.outputDir})
+  Use --dry-run to preview. Directory must be inside the repository.
+
 RELATIVE DATE PARSING:
   7d  = 7 days ago
   2w  = 2 weeks ago
@@ -875,9 +1056,10 @@ RELATIVE DATE PARSING:
   24h = 24 hours ago
 
 EXAMPLES:
-  node lessons-preprocessor.js --since 7d
-  node lessons-preprocessor.js --full --verbose
-  node lessons-preprocessor.js --self-test
+  node lessons-preprocessor.cjs --since 7d
+  node lessons-preprocessor.cjs --full --verbose
+  node lessons-preprocessor.cjs --clear --dry-run
+  node lessons-preprocessor.cjs --self-test
 `);
 }
 
@@ -978,11 +1160,14 @@ async function runSelfTest() {
 
   // Test 10: Redaction
   console.log('\nRedaction:');
+  const { regexes: testRedactions } = compileRedactions(DEFAULT_REDACT_PATTERNS);
   const toRedact = { text: 'api_key=secret123', error: 'password=hunter2' };
-  const redacted = applyRedaction(toRedact, DEFAULT_REDACT_PATTERNS);
+  const redacted = applyRedaction(toRedact, testRedactions);
   assert(redacted.text.includes('[REDACTED]'), 'redacts api_key in text');
   assert(redacted.error.includes('[REDACTED]'), 'redacts password in error');
-  assert(applyRedaction({ text: 'normal text' }, ['[invalid regex']).text === 'normal text',
+  // Invalid regex is now caught at compile time (see Test 14)
+  const { regexes: invalidRegexes } = compileRedactions(['[invalid regex']);
+  assert(applyRedaction({ text: 'normal text' }, invalidRegexes).text === 'normal text',
     'handles invalid regex gracefully');
 
   // Test 11: Sampling strategy
@@ -1014,6 +1199,87 @@ async function runSelfTest() {
   assert(shouldProcessFile({ path: '/test/b.jsonl', mtimeMs: 2000, size: 200 }, testCursor), 'processes new file');
   assert(!shouldProcessFile({ path: '/test/a.jsonl', mtimeMs: 1000, size: 100 }, testCursor), 'skips unchanged file');
   assert(shouldProcessFile({ path: '/test/a.jsonl', mtimeMs: 1000, size: 150 }, testCursor), 'processes changed file (size)');
+
+  // Test 14: Redaction compilation
+  console.log('\nRedaction Compilation:');
+  {
+    const r1 = compileRedactions(['api_key', 'password']);
+    assert(r1.regexes.length === 2 && r1.warnings.length === 0, 'compiles plain patterns');
+
+    const r2 = compileRedactions(['/secret/i', '/token/g']);
+    assert(r2.regexes.length === 2, 'compiles /pattern/flags syntax');
+    assert(r2.regexes[0].regex.flags === 'i', 'preserves custom flags');
+
+    const r3 = compileRedactions(['[invalid', 'valid']);
+    assert(r3.regexes.length === 1 && r3.warnings.length === 1, 'warns once per invalid');
+
+    // Test pattern with / in body (note: regex.source escapes the /)
+    const r4 = compileRedactions(['/foo/bar/gi']);
+    assert(r4.regexes.length === 1 && r4.regexes[0].regex.source === 'foo\\/bar', 'handles / in pattern body');
+  }
+
+  // Test 15: Clear safety validation
+  console.log('\nClear Safety:');
+  {
+    const repoRoot = findRepoRoot(process.cwd());
+
+    assert(!isOutputDirSafe('/').safe, 'rejects Unix root');
+    assert(!isOutputDirSafe('C:\\').safe, 'rejects Windows root');
+    assert(!isOutputDirSafe(os.homedir()).safe, 'rejects home dir');
+    assert(!isOutputDirSafe(repoRoot).safe, 'rejects repo root itself');
+    assert(!isOutputDirSafe('/random/path').safe, 'rejects path outside repo');
+
+    // Valid path inside repo root
+    const validPath = path.join(repoRoot, 'docs', 'ai', 'lessons-extractor');
+    assert(isOutputDirSafe(validPath).safe, 'accepts path inside repo');
+  }
+
+  // Test 16: Clear operation
+  console.log('\nClear Operation:');
+  {
+    // Create temp dir INSIDE cwd to pass safety check
+    const tempDir = path.join(process.cwd(), '.test-clear-' + Date.now());
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const testFiles = ['lessons.md', 'preprocessed.json'];
+    for (const f of testFiles) {
+      fs.writeFileSync(path.join(tempDir, f), 'test');
+    }
+
+    clearOutputFiles(tempDir, { dryRun: false, verbose: false });
+    assert(!fs.existsSync(path.join(tempDir, 'lessons.md')), 'clears lessons.md');
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+
+  // Test 17: ESM host repo compatibility
+  console.log('\nESM Compatibility:');
+  {
+    const { execSync } = require('child_process');
+    const tempDir = path.join(os.tmpdir(), `esm-test-${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    // Create package.json with "type": "module" (ESM host)
+    fs.writeFileSync(
+      path.join(tempDir, 'package.json'),
+      JSON.stringify({ type: 'module' }, null, 2)
+    );
+
+    try {
+      // Run our .cjs preprocessor from within the ESM project
+      const scriptPath = path.resolve(__filename).replace(/\\/g, '/');
+      const result = execSync(`node "${scriptPath}" --help`, {
+        cwd: tempDir,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      assert(result.includes('lessons-preprocessor'), 'runs in ESM host project');
+    } catch (err) {
+      assert(false, `ESM host compatibility: ${err.message}`);
+    }
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 
   // Summary
   console.log('\n' + '='.repeat(40));
@@ -1059,11 +1325,28 @@ async function main() {
     // Override with CLI options
     if (opts.maxLogs) config.maxLogsPerRun = opts.maxLogs;
 
-    // Load redaction patterns
-    const redactPatterns = config.redactPatterns || DEFAULT_REDACT_PATTERNS;
+    // Resolve output directory: CLI --output-dir > config.outputDir > default
+    const outputDir = expandPath(opts.outputDir || config.outputDir || DEFAULTS.outputDir);
+
+    // Handle --clear mode
+    if (opts.clear) {
+      clearOutputFiles(outputDir, opts);
+      process.exit(0);
+    }
+
+    // Compile redaction patterns once at startup
+    const rawPatterns = config.redactPatterns || DEFAULT_REDACT_PATTERNS;
+    const { regexes: compiledRedactions, warnings: redactionWarnings } = compileRedactions(rawPatterns);
+
+    // Log warnings ONCE at startup
+    for (const warning of redactionWarnings) {
+      log('warn', warning);
+    }
+    if (compiledRedactions.length > 0) {
+      log('verbose', `Compiled ${compiledRedactions.length} redaction patterns`);
+    }
 
     // Determine output path
-    const outputDir = expandPath(config.outputDir || DEFAULTS.outputDir);
     const outputPath = opts.output || path.join(outputDir, 'preprocessed.json');
 
     // Load cursor (unless --full)
@@ -1130,7 +1413,7 @@ async function main() {
       log('verbose', `Processing: ${logFile.path}`);
 
       try {
-        const result = await processLogFile(logFile.path, processConfig, redactPatterns);
+        const result = await processLogFile(logFile.path, processConfig, compiledRedactions);
 
         // Skip extractor sessions
         if (result.isExtractorSession && (config.skipExtractorSessions ?? DEFAULTS.skipExtractorSessions)) {
