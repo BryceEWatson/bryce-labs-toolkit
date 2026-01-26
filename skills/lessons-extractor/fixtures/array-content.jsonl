@@ -1,0 +1,6 @@
+{"type":"system","timestamp":"2026-01-20T14:00:00.000Z","sessionId":"array-test-001","cwd":"/test/project","gitBranch":"main"}
+{"type":"user","timestamp":"2026-01-20T14:00:01.000Z","content":"Test array content handling"}
+{"type":"assistant","timestamp":"2026-01-20T14:00:02.000Z","message":{"content":[{"type":"text","text":"Response part 1."},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"x.txt"}},{"type":"text","text":"Response part 2."}]}}
+{"type":"tool_result","timestamp":"2026-01-20T14:00:03.000Z","tool_result":{"content":[{"type":"text","text":"File contents from tool result"}]},"exit_code":0,"name":"Read"}
+{"type":"assistant","timestamp":"2026-01-20T14:00:04.000Z","message":{"content":[{"type":"text","text":"I read the file."},{"type":"text","text":"Multiple text blocks here."}]}}
+{"type":"user","timestamp":"2026-01-20T14:00:05.000Z","content":"Thanks!"}

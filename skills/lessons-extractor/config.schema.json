@@ -6,20 +6,20 @@
   "properties": {
     "logGlob": {
       "type": "string",
-      "description": "Glob pattern for Claude Code log files (user home scoped)",
-      "default": "~/.claude/projects/**/*.jsonl"
+      "description": "Base directory for Claude Code log files (user home scoped)",
+      "default": "~/.claude/projects"
     },
     "redactPatterns": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Regex patterns for sensitive data to redact before processing",
+      "description": "Regex patterns for data to redact. Plain strings use 'gi' flags. Use /pattern/flags syntax for custom flags (e.g., '/secret/i').",
       "default": [
-        "(?i)api[_-]?key[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
-        "(?i)password[\"']?\\s*[:=]\\s*[\"']?[^\\s\"']+",
-        "(?i)secret[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
-        "(?i)token[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+        "api[_-]?key[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+        "password[\"']?\\s*[:=]\\s*[\"']?[^\\s\"']+",
+        "secret[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+        "token[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
         "/Users/[^/]+/",
         "/home/[^/]+/",
         "C:\\\\Users\\\\[^\\\\]+\\\\"
@@ -29,6 +29,91 @@
       "type": "string",
       "description": "Directory for output files (relative to project root)",
       "default": "docs/ai/lessons-extractor"
+    },
+    "preprocessor": {
+      "type": "object",
+      "description": "Preprocessor-specific settings for efficient log processing",
+      "properties": {
+        "maxLogsPerRun": {
+          "type": "integer",
+          "description": "Maximum log files to process per run",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 500
+        },
+        "maxBytesPerLog": {
+          "type": "integer",
+          "description": "Maximum bytes to read from each log file",
+          "default": 100000,
+          "minimum": 5000,
+          "maximum": 1000000
+        },
+        "maxEventsPerLog": {
+          "type": "integer",
+          "description": "Maximum events to extract per log file",
+          "default": 500,
+          "minimum": 10,
+          "maximum": 2000
+        },
+        "truncateContentLength": {
+          "type": "integer",
+          "description": "Maximum length for content fields before truncation",
+          "default": 3000,
+          "minimum": 500,
+          "maximum": 10000
+        },
+        "contextEventsCount": {
+          "type": "integer",
+          "description": "Number of events to keep from session start for context",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 100
+        },
+        "resolutionEventsCount": {
+          "type": "integer",
+          "description": "Number of events to keep from session end for resolution",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 100
+        },
+        "errorWindowEvents": {
+          "type": "integer",
+          "description": "Events before/after each error to include",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20
+        },
+        "skipExtractorSessions": {
+          "type": "boolean",
+          "description": "Skip sessions that are running lessons-extractor",
+          "default": true
+        },
+        "cursorFile": {
+          "type": "string",
+          "description": "Filename for cursor (incremental processing state)",
+          "default": ".lessons-cursor.json"
+        },
+        "maxRecentFiles": {
+          "type": "integer",
+          "description": "Maximum files to track in cursor for incremental runs",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 1000
+        },
+        "maxOutputSizeBytes": {
+          "type": "integer",
+          "description": "Maximum output file size in bytes",
+          "default": 5000000,
+          "minimum": 50000,
+          "maximum": 10000000
+        },
+        "followSymlinks": {
+          "type": "boolean",
+          "description": "Follow symbolic links when discovering logs",
+          "default": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

@@ -1,0 +1,5 @@
+{"type":"system","timestamp":"2026-01-20T12:00:00.000Z","sessionId":"extractor-run-001"}
+{"type":"user","timestamp":"2026-01-20T12:00:01.000Z","content":"<command-name>/lessons-extractor</command-name>\nBase directory for this skill: ~/.claude/skills/lessons-extractor/\n\nExtract reusable lessons from Claude Code session logs."}
+{"type":"assistant","timestamp":"2026-01-20T12:00:02.000Z","content":"Running lessons extractor skill. I'll first locate the log files.","tool_calls":[{"name":"Bash","arguments":{"command":"find ~/.claude/projects -name '*.jsonl' -type f | head -50"}}]}
+{"type":"tool_result","name":"Bash","timestamp":"2026-01-20T12:00:03.000Z","content":"/home/user/.claude/projects/abc/session.jsonl","exit_code":0}
+{"type":"assistant","timestamp":"2026-01-20T12:00:04.000Z","content":"Found log files. Processing..."}

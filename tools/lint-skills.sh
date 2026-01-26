@@ -26,7 +26,7 @@ while IFS= read -r -d '' file; do
         if echo "$PS_LINES" | grep -Fq '$env:'; then
             echo "ERROR: $file"
             echo "$PS_LINES" | grep -F '$env:' | head -3
-            echo "  ^ Contains \$env: in PowerShell command"
+            echo '  ^ Contains $env: in PowerShell command'
             echo ""
             ERRORS=$((ERRORS + 1))
         fi
@@ -35,7 +35,7 @@ while IFS= read -r -d '' file; do
         if echo "$PS_LINES" | grep -Fq '$_'; then
             echo "ERROR: $file"
             echo "$PS_LINES" | grep -F '$_' | head -3
-            echo "  ^ Contains \$_ in PowerShell command"
+            echo '  ^ Contains $_ in PowerShell command'
             echo ""
             ERRORS=$((ERRORS + 1))
         fi
@@ -44,7 +44,7 @@ while IFS= read -r -d '' file; do
         if echo "$PS_LINES" | grep -Fq '$('; then
             echo "ERROR: $file"
             echo "$PS_LINES" | grep -F '$(' | head -3
-            echo "  ^ Contains \$( in PowerShell command"
+            echo '  ^ Contains $( in PowerShell command'
             echo ""
             ERRORS=$((ERRORS + 1))
         fi
@@ -52,9 +52,9 @@ while IFS= read -r -d '' file; do
         # Check for $HOME or $USERPROFILE (fixed-string match)
         if echo "$PS_LINES" | grep -Fq '$HOME' || echo "$PS_LINES" | grep -Fq '$USERPROFILE'; then
             echo "ERROR: $file"
-            echo "$PS_LINES" | grep -F '$HOME' | head -3
-            echo "$PS_LINES" | grep -F '$USERPROFILE' | head -3
-            echo "  ^ Contains \$HOME or \$USERPROFILE in PowerShell command"
+            echo "$PS_LINES" | grep -F '$HOME' | head -3 || true
+            echo "$PS_LINES" | grep -F '$USERPROFILE' | head -3 || true
+            echo '  ^ Contains $HOME or $USERPROFILE in PowerShell command'
             echo ""
             ERRORS=$((ERRORS + 1))
         fi
@@ -66,10 +66,10 @@ if [ $ERRORS -gt 0 ]; then
     echo "========================================"
     echo "Found $ERRORS Windows-unsafe pattern(s)."
     echo ""
-    echo "Fix: Replace \$-based syntax with \$-free equivalents:"
-    echo "  - \$env:USERPROFILE  →  ~"
-    echo "  - \$_                →  -ExpandProperty or property-based Where-Object"
-    echo "  - \$(...)            →  method call syntax like (Get-Date).AddDays(-7)"
+    echo 'Fix: Replace $-based syntax with $-free equivalents:'
+    echo '  - $env:USERPROFILE  ->  ~'
+    echo '  - $_                ->  -ExpandProperty or property-based Where-Object'
+    echo '  - $(...)            ->  method call syntax like (Get-Date).AddDays(-7)'
     echo ""
     echo "See: .claude/skills/lessons-extractor/SKILL.md#troubleshooting (installed)"
     echo "     skills/lessons-extractor/SKILL.md#troubleshooting (source)"

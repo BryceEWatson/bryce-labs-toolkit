@@ -1,13 +1,27 @@
 {
-  "logGlob": "~/.claude/projects/**/*.jsonl",
+  "logGlob": "~/.claude/projects",
   "redactPatterns": [
-    "(?i)api[_-]?key[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
-    "(?i)password[\"']?\\s*[:=]\\s*[\"']?[^\\s\"']+",
-    "(?i)secret[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
-    "(?i)token[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+    "api[_-]?key[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+    "password[\"']?\\s*[:=]\\s*[\"']?[^\\s\"']+",
+    "secret[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+    "token[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
     "/Users/[^/]+/",
     "/home/[^/]+/",
     "C:\\\\Users\\\\[^\\\\]+\\\\"
   ],
-  "outputDir": "docs/ai/lessons-extractor"
+  "outputDir": "docs/ai/lessons-extractor",
+  "preprocessor": {
+    "maxLogsPerRun": 50,
+    "maxBytesPerLog": 100000,
+    "maxEventsPerLog": 500,
+    "truncateContentLength": 3000,
+    "contextEventsCount": 20,
+    "resolutionEventsCount": 20,
+    "errorWindowEvents": 5,
+    "skipExtractorSessions": true,
+    "cursorFile": ".lessons-cursor.json",
+    "maxRecentFiles": 200,
+    "maxOutputSizeBytes": 5000000,
+    "followSymlinks": false
+  }
 }
