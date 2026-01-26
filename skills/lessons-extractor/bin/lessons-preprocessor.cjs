@@ -461,7 +461,7 @@ function normalizePersistedOutput(raw) {
   return raw.tool_results.map((tr, idx) => ({
     kind: 'tool_result',
     timestamp: raw.timestamp,
-    text: tr.content || tr.output || '',
+    text: coerceText(tr.content ?? tr.output ?? ''),
     toolName: tr.name || tr.tool || null,
     exitCode: tr.exit_code ?? tr.exitCode ?? null,
     command: tr.arguments?.command || null,
