@@ -39,7 +39,7 @@ const DEFAULTS = {
   skipExtractorSessions: true,
   cursorFile: '.lessons-cursor.json',
   maxRecentFiles: 200,
-  maxOutputSizeBytes: 500000,
+  maxOutputSizeBytes: 5000000,  // 5MB (increased from 500KB to allow more events per session)
   followSymlinks: false,
   outputDir: 'docs/ai/lessons-extractor',
   logGlob: '~/.claude/projects'
@@ -314,6 +314,37 @@ function truncate(str, maxLength) {
 }
 
 /**
+ * Coerce any value to a string for safe text processing
+ * - string: return as-is
+ * - array of content blocks: extract .text from text blocks, join with \n
+ * - other array/object: JSON.stringify (stable, deterministic)
+ * - null/undefined: return empty string
+ * - Never throws
+ * @param {*} value - Any value to coerce
+ * @returns {string}
+ */
+function coerceText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+
+  if (Array.isArray(value)) {
+    // Handle Claude content block arrays: [{type:"text",text:"..."},...]
+    const textParts = value
+      .filter(b => b && typeof b === 'object' && b.type === 'text' && typeof b.text === 'string')
+      .map(b => b.text);
+    if (textParts.length > 0) return textParts.join('\n');
+    // Fallback: stringify
+    try { return JSON.stringify(value); } catch { return '[unserializable]'; }
+  }
+
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return '[unserializable]'; }
+  }
+
+  return String(value);
+}
+
+/**
  * Parse relative date strings like "7d", "2w", "1m", "24h"
  */
 function parseRelativeDate(str) {
@@ -349,20 +380,21 @@ function parseRelativeDate(str) {
 
 /**
  * Extract text content from various event shapes
+ * Always returns a string (coerces arrays/objects via coerceText)
  */
 function extractText(raw) {
   // Direct content field
-  if (typeof raw.content === 'string') return raw.content;
+  if (raw.content !== undefined) return coerceText(raw.content);
 
-  // Nested in message
-  if (raw.message?.content) return raw.message.content;
+  // Nested in message (can be array of content blocks)
+  if (raw.message?.content !== undefined) return coerceText(raw.message.content);
 
   // Tool result content
-  if (raw.tool_result?.content) return raw.tool_result.content;
-  if (raw.toolResult?.content) return raw.toolResult.content;
+  if (raw.tool_result?.content !== undefined) return coerceText(raw.tool_result.content);
+  if (raw.toolResult?.content !== undefined) return coerceText(raw.toolResult.content);
 
   // Output field
-  if (raw.output) return raw.output;
+  if (raw.output !== undefined) return coerceText(raw.output);
 
   return '';
 }
@@ -628,7 +660,11 @@ function applyRedaction(obj, compiledRegexes) {
   for (const field of ['text', 'error', 'command']) {
     if (!result[field]) continue;
 
-    let redacted = result[field];
+    // Belt + suspenders: ensure we have a string before calling .replace()
+    let redacted = typeof result[field] === 'string'
+      ? result[field]
+      : coerceText(result[field]);
+
     for (const { regex } of compiledRegexes) {
       regex.lastIndex = 0; // Reset for global regex
       redacted = redacted.replace(regex, '[REDACTED]');
@@ -877,6 +913,42 @@ function shouldProcessFile(file, cursor) {
   return false;
 }
 
+/**
+ * Determine if cursor should be written based on run success
+ * Blocks cursor update on: complete failure, high error rate, or unexpectedly empty output
+ * @param {object} stats - Run statistics with logsAttempted, logsSucceeded, logsFailed
+ * @param {number} sessionsWritten - Number of sessions written to output
+ * @param {number} logsFound - Total logs found before filtering
+ * @returns {{ write: boolean, reason: string }}
+ */
+function shouldWriteCursor(stats, sessionsWritten, logsFound) {
+  const { logsAttempted, logsSucceeded, logsFailed } = stats;
+
+  // No files attempted
+  if (logsAttempted === 0) {
+    return { write: false, reason: 'No files attempted' };
+  }
+
+  // Complete failure: all attempted files failed
+  if (logsSucceeded === 0 && logsFailed > 0) {
+    return { write: false, reason: `All ${logsFailed} files failed processing` };
+  }
+
+  // High error rate (> 50%)
+  const errorRate = logsFailed / logsAttempted;
+  if (errorRate > 0.5) {
+    return { write: false, reason: `Error rate ${(errorRate * 100).toFixed(1)}% exceeds 50% threshold` };
+  }
+
+  // Unexpectedly empty output
+  if (sessionsWritten === 0 && logsFound > 0) {
+    return { write: false, reason: 'No sessions extracted despite logs found' };
+  }
+
+  // Good run
+  return { write: true, reason: 'Run succeeded' };
+}
+
 // ============================================================================
 // Output Generation
 // ============================================================================
@@ -892,9 +964,9 @@ function computePerSessionBudget(sessionCount, config) {
   const truncateLength = config.truncateContentLength ?? DEFAULTS.truncateContentLength;
   const computedEvents = Math.floor(perSessionBytes / (truncateLength * 2));
 
-  // Clamp to minimum of 10 events per session (never zero)
+  // Clamp to minimum of 30 events per session (never zero)
   const maxEventsPerSession = Math.max(
-    10,
+    30,  // Increased from 10 to preserve more context
     Math.min(config.maxEventsPerLog ?? DEFAULTS.maxEventsPerLog, computedEvents)
   );
 
@@ -1281,6 +1353,151 @@ async function runSelfTest() {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 
+  // Test 18: Text coercion
+  console.log('\nText Coercion:');
+  {
+    // String passthrough
+    assert(coerceText('hello') === 'hello', 'preserves strings');
+
+    // null/undefined
+    assert(coerceText(null) === '', 'null -> empty string');
+    assert(coerceText(undefined) === '', 'undefined -> empty string');
+
+    // Claude content block array
+    const contentBlocks = [
+      { type: 'text', text: 'First part.' },
+      { type: 'tool_use', id: 'abc', name: 'Read' },
+      { type: 'text', text: 'Second part.' }
+    ];
+    const coerced = coerceText(contentBlocks);
+    assert(coerced === 'First part.\nSecond part.', 'extracts text from content blocks');
+
+    // Non-text array
+    const numArray = [1, 2, 3];
+    assert(coerceText(numArray) === '[1,2,3]', 'stringifies non-content arrays');
+
+    // Object
+    const obj = { key: 'value' };
+    assert(coerceText(obj) === '{"key":"value"}', 'stringifies objects');
+
+    // Numbers/booleans
+    assert(coerceText(42) === '42', 'converts numbers');
+    assert(coerceText(true) === 'true', 'converts booleans');
+  }
+
+  // Test 19: Cursor gating
+  console.log('\nCursor Gating:');
+  {
+    // Complete failure
+    assert(
+      !shouldWriteCursor({ logsAttempted: 5, logsSucceeded: 0, logsFailed: 5 }, 0, 10).write,
+      'blocks cursor on complete failure'
+    );
+
+    // High error rate (> 50%)
+    assert(
+      !shouldWriteCursor({ logsAttempted: 10, logsSucceeded: 4, logsFailed: 6 }, 4, 10).write,
+      'blocks cursor on > 50% error rate'
+    );
+
+    // Acceptable error rate
+    assert(
+      shouldWriteCursor({ logsAttempted: 10, logsSucceeded: 6, logsFailed: 4 }, 6, 10).write,
+      'allows cursor on <= 50% error rate'
+    );
+
+    // No files attempted
+    assert(
+      !shouldWriteCursor({ logsAttempted: 0, logsSucceeded: 0, logsFailed: 0 }, 0, 10).write,
+      'blocks cursor when no files attempted'
+    );
+
+    // Unexpectedly empty output
+    assert(
+      !shouldWriteCursor({ logsAttempted: 10, logsSucceeded: 10, logsFailed: 0 }, 0, 10).write,
+      'blocks cursor when no sessions extracted'
+    );
+
+    // Perfect run
+    assert(
+      shouldWriteCursor({ logsAttempted: 10, logsSucceeded: 10, logsFailed: 0 }, 5, 10).write,
+      'allows cursor on perfect run'
+    );
+  }
+
+  // Test 20: Exact failure mode - message.content as array of content blocks
+  console.log('\nArray Content Handling (Failure Mode Fix):');
+  {
+    const raw = {
+      type: 'assistant',
+      timestamp: '2026-01-20T12:00:00Z',
+      message: {
+        content: [
+          { type: 'text', text: 'Part one.' },
+          { type: 'tool_use', id: 't1', name: 'Read', input: {} },
+          { type: 'text', text: 'Part two.' }
+        ]
+      }
+    };
+    const normalized = normalizeEvent(raw);
+    assert(typeof normalized.text === 'string', 'event.text is a string');
+    assert(normalized.text === 'Part one.\nPart two.', 'text blocks joined correctly');
+
+    // Verify redaction doesn't crash
+    const redactedResult = applyRedaction(normalized, testRedactions);
+    assert(typeof redactedResult.text === 'string', 'redacted text is still a string');
+  }
+
+  // Test 21: Array content fixture processing
+  console.log('\nArray Content Fixture:');
+  {
+    const fixturePath = path.join(getSkillRoot(), 'fixtures', 'array-content.jsonl');
+    if (fs.existsSync(fixturePath)) {
+      let error = null;
+      let result = null;
+      try {
+        result = await processLogFile(fixturePath, DEFAULTS, testRedactions);
+      } catch (e) {
+        error = e;
+      }
+
+      assert(error === null, `processes array-content fixture without error (${error?.message || 'OK'})`);
+      assert(result !== null && result.events.length > 0, 'extracts events from array-content fixture');
+
+      // Verify text was extracted correctly
+      const assistantEvents = result.events.filter(e => e.kind === 'assistant');
+      assert(
+        assistantEvents.some(e => e.text && e.text.includes('Response part 1.')),
+        'extracts text from content block arrays'
+      );
+    } else {
+      assert(false, 'array-content.jsonl fixture not found');
+    }
+  }
+
+  // Test 22: Tool failure fixture detection
+  console.log('\nTool Failure Fixture Detection:');
+  {
+    const fixturePath = path.join(getSkillRoot(), 'fixtures', 'tool-failures.jsonl');
+    if (fs.existsSync(fixturePath)) {
+      const lines = fs.readFileSync(fixturePath, 'utf-8').split('\n').filter(Boolean);
+      const events = lines.map(line => {
+        try {
+          const raw = JSON.parse(line);
+          return normalizeEvent(raw);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+
+      const failures = events.filter(e => isToolFailure(e));
+      assert(failures.length >= 2, `detects ${failures.length} failures in fixture (expected >= 2)`);
+      assert(failures.some(f => f.exitCode === 1), 'detects exit_code: 1 failures');
+    } else {
+      assert(false, 'tool-failures.jsonl fixture not found');
+    }
+  }
+
   // Summary
   console.log('\n' + '='.repeat(40));
   console.log(`Results: ${passed} passed, ${failed} failed`);
@@ -1416,11 +1633,17 @@ async function main() {
       skipped: {
         extractorSessions: 0,
         unchanged: allLogs.length - logsToProcess.length
-      }
+      },
+      // Run-level error tracking for cursor gating
+      logsAttempted: 0,
+      logsSucceeded: 0,
+      logsFailed: 0,
+      processingErrors: []
     };
 
     for (const logFile of logsToProcess) {
       log('verbose', `Processing: ${logFile.path}`);
+      stats.logsAttempted++;
 
       try {
         const result = await processLogFile(logFile.path, processConfig, compiledRedactions);
@@ -1429,6 +1652,7 @@ async function main() {
         if (result.isExtractorSession && (config.skipExtractorSessions ?? DEFAULTS.skipExtractorSessions)) {
           log('verbose', `  Skipping extractor session`);
           stats.skipped.extractorSessions++;
+          stats.logsSucceeded++; // Successfully processed (just skipped)
           continue;
         }
 
@@ -1438,8 +1662,11 @@ async function main() {
           mtime: logFile.mtime.toISOString()
         });
 
+        stats.logsSucceeded++;
         log('verbose', `  Events: ${result.totalEvents} total, ${result.events.length} sampled, ${result.toolFailures.length} failures`);
       } catch (err) {
+        stats.logsFailed++;
+        stats.processingErrors.push({ path: logFile.path, error: err.message });
         log('warn', `  Error processing: ${err.message}`);
       }
     }
@@ -1454,21 +1681,37 @@ async function main() {
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2) + '\n');
     log('success', `Output written to: ${outputPath}`);
 
-    // Write cursor
+    // Write cursor (only on successful runs)
+    let cursorWritten = false;
     if (!opts.dryRun) {
       const cursorPath = opts.cursor || path.join(outputDir, config.cursorFile || DEFAULTS.cursorFile);
-      writeCursor(cursorPath, logsToProcess, config.maxRecentFiles);
-      log('verbose', `Cursor updated: ${cursorPath}`);
+      const cursorDecision = shouldWriteCursor(stats, sessions.length, allLogs.length);
+
+      if (cursorDecision.write) {
+        writeCursor(cursorPath, logsToProcess, config.maxRecentFiles);
+        cursorWritten = true;
+        log('verbose', `Cursor updated: ${cursorPath}`);
+      } else {
+        log('warn', `Cursor NOT updated: ${cursorDecision.reason}`);
+      }
     }
 
     // Summary
-    log('info', `Processed ${sessions.length} sessions`);
+    log('info', `Processing summary:`);
+    log('info', `  Logs found: ${allLogs.length}`);
+    log('info', `  Logs attempted: ${stats.logsAttempted}`);
+    log('info', `  Logs succeeded: ${stats.logsSucceeded}`);
+    if (stats.logsFailed > 0) {
+      log('warn', `  Logs failed: ${stats.logsFailed}`);
+    }
+    log('info', `  Sessions written: ${sessions.length}`);
     log('info', `  Total events: ${output.summary.totalEvents}`);
     log('info', `  Sampled events: ${output.summary.sampledEvents}`);
-    log('info', `  Tool failures: ${output.summary.toolFailures}`);
+    log('info', `  Tool failures detected: ${output.summary.toolFailures}`);
     if (stats.skipped.extractorSessions > 0) {
       log('info', `  Skipped extractor sessions: ${stats.skipped.extractorSessions}`);
     }
+    log('info', `  Cursor written: ${cursorWritten ? 'Yes' : 'No'}`)
 
   } catch (err) {
     log('error', err.message);

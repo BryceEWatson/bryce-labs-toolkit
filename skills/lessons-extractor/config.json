@@ -21,7 +21,7 @@
     "skipExtractorSessions": true,
     "cursorFile": ".lessons-cursor.json",
     "maxRecentFiles": 200,
-    "maxOutputSizeBytes": 500000,
+    "maxOutputSizeBytes": 5000000,
     "followSymlinks": false
   }
 }
