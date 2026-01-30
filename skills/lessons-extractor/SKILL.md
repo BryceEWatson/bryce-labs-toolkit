@@ -35,6 +35,40 @@ Config file location: `.claude/skills/lessons-extractor/config.json` (relative t
 
 ## Workflow
 
+### Prohibited Actions
+
+> **CRITICAL**: This skill MUST NOT create any files except the four expected outputs listed above.
+
+**Hard rule — no extra files:**
+
+1. **Do NOT write helper scripts** - Never create `.js`, `.cjs`, `.mjs`, `.ts`, `.sh`, or any other code files
+2. **Do NOT create temporary files** - No `analyze-*.cjs`, no scratch files, no intermediate outputs
+3. **Do NOT add any files to the repo** - If something isn't working, fall back to simpler analysis techniques
+
+**Allowed file writes (using the Write tool):**
+
+| File | Tool | Notes |
+|------|------|-------|
+| `lessons.md` | Write | Human-readable output |
+| `lessons.jsonl` | Write | Machine-readable output |
+| `preprocessed.json` | Preprocessor only | Created by `node lessons-preprocessor.cjs`, NOT by Write |
+| `.lessons-cursor.json` | Preprocessor only | Created by preprocessor, NOT by Write |
+
+**Strong guidance — avoid unreliable techniques:**
+
+- **Avoid `node -e`** - Shell escaping is unreliable across platforms; prefer Read/Grep/summary instead
+- **Avoid shell pipelines for JSON** - Use the preprocessor's built-in summary data
+
+**What to do instead when analysis is difficult:**
+
+- **Use the `summary` object** - It already contains processing stats (logs processed, events sampled, tool failures)
+- **Read selectively** - Use `Read` with `offset`/`limit` to examine portions of large files
+- **Search with Grep** - Use `Grep` to find specific patterns within `preprocessed.json`
+- **Process fewer sessions** - Re-run with `--since 1d` for a smaller dataset
+- **Ask the user** - If data is too large to analyze, ask if they want a smaller slice
+
+If you encounter ANY friction that tempts you to write a script, STOP and use these alternatives.
+
 ### Step 0: Handle --clear (if requested)
 
 If `$ARGUMENTS` contains `--clear`:
@@ -121,14 +155,30 @@ Read the preprocessor output file:
 Read: docs/ai/lessons-extractor/preprocessed.json
 ```
 
-The output contains:
-- `summary` - Processing statistics (logs processed, events sampled, tool failures found)
+**Start with the `summary` object** at the top of the file:
+- `summary.logsProcessed` - How many session logs were analyzed
+- `summary.totalEvents` - Total events across all sessions (before sampling)
+- `summary.sampledEvents` - Events included after sampling
+- `summary.toolFailures` - Count of tool failures extracted
+- `summary.skipped.extractorSessions` - How many extractor-own sessions were filtered
+
+This summary provides the statistics needed for the "Run Efficiency Findings" section without parsing every session.
+
+**The full structure contains:**
+- `summary` - Processing statistics (read this FIRST)
 - `sessions[]` - Array of processed sessions with:
   - `sessionId` - Unique session identifier
-  - `logPath` - Original log file path
+  - `logPath` - Original log file path (redacted)
   - `events[]` - Sampled and truncated events
   - `toolFailures[]` - Detected tool failures with error details
   - `evidence[]` - Short excerpts with timestamps for lesson attribution
+
+**If the file is too large to read at once:**
+1. Use `Read` with `limit: 200` to see the structure and summary
+2. Use `Grep` to search for specific patterns (e.g., `"toolFailures"`, error keywords)
+3. Request a smaller slice: ask the user to re-run with `--since 1d` or `--since 12h`
+
+**NEVER write helper scripts to analyze this data** - see "Prohibited Actions" above.
 
 ### Step 3: Summarize Sessions
 
@@ -285,3 +335,36 @@ If logs are outside the repo and Claude Code cannot read them:
 1. Run the preprocessor manually in a terminal with appropriate permissions
 2. Copy the `preprocessed.json` output into the repo
 3. Continue from Step 2 (Read Preprocessed Data)
+
+## Acceptance Criteria
+
+A successful lessons-extractor run produces EXACTLY these files:
+
+| File | Required | Created By |
+|------|----------|------------|
+| `preprocessed.json` | Yes | Preprocessor (Bash) |
+| `.lessons-cursor.json` | Yes | Preprocessor (Bash) |
+| `lessons.md` | Yes | Write tool |
+| `lessons.jsonl` | Yes | Write tool |
+
+**Verification before commit:**
+
+Unix/Git Bash:
+```bash
+# List files in output directory - should see only the 4 expected files
+ls docs/ai/lessons-extractor/
+
+# Detect helper scripts (should print nothing)
+ls docs/ai/lessons-extractor/*.cjs docs/ai/lessons-extractor/*.js docs/ai/lessons-extractor/*.mjs docs/ai/lessons-extractor/*.ts docs/ai/lessons-extractor/*.sh 2>/dev/null && echo "ERROR: Helper scripts found!" || echo "OK: No helper scripts"
+```
+
+PowerShell:
+```powershell
+# List files in output directory
+Get-ChildItem docs\ai\lessons-extractor | Select-Object Name
+
+# Detect helper scripts (should return nothing)
+Get-ChildItem docs\ai\lessons-extractor\*.cjs,docs\ai\lessons-extractor\*.js,docs\ai\lessons-extractor\*.mjs,docs\ai\lessons-extractor\*.ts,docs\ai\lessons-extractor\*.sh -ErrorAction SilentlyContinue
+```
+
+If ANY other files (especially `.cjs`, `.js`, `.sh`, or `analyze-*` files) appear in the output directory, the run has violated the skill constraints and those files must be deleted.
