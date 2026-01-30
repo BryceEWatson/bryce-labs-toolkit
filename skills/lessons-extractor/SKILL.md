@@ -26,6 +26,9 @@ Access via `$ARGUMENTS`:
 - `--output <dir>` - Output directory (default: `docs/ai/lessons-extractor/`)
 - `--full` - Process all logs, ignoring incremental cursor
 - `--clear` - Clear existing outputs before generating fresh lessons
+- `--reindex` - Force refresh index for all processed logs (v1.2.0)
+- `--index-max <n>` - Maximum index entries (default: 500, v1.2.0)
+- `--index-days <n>` - Prune entries older than N days (default: 30, v1.2.0)
 
 ## Configuration
 
@@ -279,6 +282,68 @@ If preprocessor was not used (fallback):
 - Log directories use encoded names (e.g., `c--Users-YourName-Projects-myrepo`)
 - Use `--since` to limit volume when processing many sessions
 - The preprocessor automatically skips its own sessions to avoid noise
+
+## Cursor Index (v1.2.0)
+
+The preprocessor maintains a persistent index of processed log files in `.lessons-cursor.json`. This enables faster incremental runs by caching derived metadata.
+
+### How It Works
+
+On first run, the preprocessor:
+1. Processes all discovered logs fully
+2. Stores derived metadata (taskPreview, toolNames, kindsCount, etc.) in the cursor index
+3. On subsequent runs, reuses cached metadata for unchanged files
+
+**Index hits** emit lightweight "cached" sessions without re-reading the file.
+**Index misses** (new/changed files) trigger full processing.
+
+### Output Session Modes
+
+Sessions in `preprocessed.json` have a `mode` field:
+- `mode: "full"` - Fully processed session with events, evidence, and tool failures
+- `mode: "cached"` - Lightweight session from index (no events array, faster)
+- `mode: "fast"` - Fast-path scanned session (quick scan only)
+
+Cached sessions have `fromIndex: true` and `events: null`. Use `--full` to force full processing for all sessions.
+
+### Index Configuration
+
+In `config.json` under `preprocessor.indexing`:
+
+```json
+{
+  "indexing": {
+    "maxEntries": 500,        // Maximum entries in index
+    "maxAgeDays": 30,         // Prune entries older than N days (0=disabled)
+    "pruneStrategy": "hybrid", // "lru", "age", or "hybrid"
+    "preserveUserFields": true // Preserve tags/notes when updating
+  }
+}
+```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--reindex` | Force refresh index for all files (preserves user tags/notes) |
+| `--index-max <n>` | Override max index entries (default: 500, min: 50) |
+| `--index-days <n>` | Override max age days (default: 30, 0=disabled) |
+
+### User Annotations
+
+The index supports user-added metadata per log file:
+- `tags`: Array of strings for categorization
+- `notes`: Free-form string for session-specific notes
+
+Edit `.lessons-cursor.json` directly to add annotations. They are preserved across index updates.
+
+### Pruning Strategies
+
+- **lru**: Keep most recently accessed entries up to `maxEntries`
+- **age**: Remove entries older than `maxAgeDays`, no entry count limit
+- **hybrid** (default): Apply age pruning first, then LRU to reach `maxEntries`
+
+Entries with user annotations (tags/notes) are never automatically pruned.
 
 ## Troubleshooting
 

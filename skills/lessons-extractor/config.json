@@ -39,6 +39,13 @@
       "errorWindowEvents": 5,
       "importanceWindowEvents": 5,
       "taskPreviewLength": 200
+    },
+
+    "indexing": {
+      "maxEntries": 500,
+      "maxAgeDays": 30,
+      "pruneStrategy": "hybrid",
+      "preserveUserFields": true
     }
   }
 }
