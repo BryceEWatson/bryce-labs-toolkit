@@ -168,7 +168,7 @@ This summary provides the statistics needed for the "Run Efficiency Findings" se
 - `summary` - Processing statistics (read this FIRST)
 - `sessions[]` - Array of processed sessions with:
   - `sessionId` - Unique session identifier
-  - `logPath` - Original log file path (redacted)
+  - `logPath` - Log file path (home directory replaced with `~` to avoid exposing usernames)
   - `events[]` - Sampled and truncated events
   - `toolFailures[]` - Detected tool failures with error details
   - `evidence[]` - Short excerpts with timestamps for lesson attribution

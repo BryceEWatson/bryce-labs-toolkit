@@ -25,7 +25,7 @@ const crypto = require('crypto');
 // Constants
 // ============================================================================
 
-const TOOL_VERSION = '1.1.0';
+const TOOL_VERSION = '1.1.1';
 const MIN_NODE_VERSION = 14;
 
 // Default configuration values (v1.1.0: nested structure)
@@ -80,6 +80,24 @@ const DEFAULTS = {
  */
 function hashLine(rawLine) {
   return crypto.createHash('sha256').update(rawLine, 'utf8').digest('hex').slice(0, 16);
+}
+
+/**
+ * Redact user home directory from file paths to avoid exposing usernames
+ * Replaces /Users/username/, /home/username/, C:\Users\username\ with ~/
+ * @param {string} filePath - The file path to redact
+ * @returns {string} Path with home directory replaced by ~
+ */
+function redactPath(filePath) {
+  if (!filePath) return filePath;
+  const homeDir = os.homedir();
+  // Normalize path separators for comparison
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const normalizedHome = homeDir.replace(/\\/g, '/');
+  if (normalizedPath.startsWith(normalizedHome)) {
+    return '~' + normalizedPath.slice(normalizedHome.length);
+  }
+  return filePath;
 }
 
 /**
@@ -1465,7 +1483,7 @@ async function processLogFile(filePath, config, compiledRedactions) {
 
   return {
     sessionId,
-    logPath: filePath,
+    logPath: redactPath(filePath),
     metadata,
     totalEvents: allEvents.length,
     sampledEventCount: sampledEvents.length,
@@ -2404,6 +2422,25 @@ async function runSelfTest() {
     assert(DEFAULTS.windowing.tailEvents === 250, 'default tailEvents is 250');
   }
 
+  // Test: Path redaction (v1.1.1)
+  console.log('\nPath Redaction (v1.1.1):');
+  {
+    const homeDir = os.homedir();
+    const testPath = path.join(homeDir, '.claude', 'projects', 'test', 'conversation.jsonl');
+    const redacted = redactPath(testPath);
+    assert(redacted.startsWith('~'), 'redacts home directory to ~');
+    assert(!redacted.includes(homeDir.replace(/\\/g, '/')), 'home dir not in redacted path');
+    assert(redacted.includes('.claude/projects'), 'preserves relative path structure');
+
+    // Test non-home paths are unchanged
+    const nonHomePath = '/some/other/path.jsonl';
+    assert(redactPath(nonHomePath) === nonHomePath, 'non-home paths unchanged');
+
+    // Test null/empty handling
+    assert(redactPath(null) === null, 'null returns null');
+    assert(redactPath('') === '', 'empty string returns empty');
+  }
+
   // Summary
   console.log('\n' + '='.repeat(40));
   console.log(`Results: ${passed} passed, ${failed} failed`);
@@ -2561,7 +2598,7 @@ async function main() {
             // Skip deep processing, add minimal session entry
             sessions.push({
               sessionId: fastResult.sessionId || path.basename(logFile.path, '.jsonl'),
-              logPath: logFile.path,
+              logPath: redactPath(logFile.path),
               mtime: logFile.mtime.toISOString(),
               mode: 'fast',
               taskPreview: fastResult.taskPreview,
@@ -2594,7 +2631,7 @@ async function main() {
 
         sessions.push({
           ...result,
-          logPath: logFile.path,
+          logPath: redactPath(logFile.path),
           mtime: logFile.mtime.toISOString()
         });
 
