@@ -580,6 +580,39 @@ function normalizePersistedOutput(raw) {
   }));
 }
 
+/**
+ * Handle multi-tool-call messages
+ * v1.1.1: EXPLODE tool_calls and message.content tool_use blocks into multiple events
+ * This ensures toolNames[] and toolCallsDetected counts are accurate
+ */
+function normalizeToolCalls(raw) {
+  const calls = raw.tool_calls || raw.toolCalls || [];
+  const contentCalls = (raw.message?.content || []).filter(b => b.type === 'tool_use');
+  const allCalls = [...calls, ...contentCalls];
+
+  if (allCalls.length === 0) {
+    return null;
+  }
+
+  // Extract any text content from message.content (before/between tool_use blocks)
+  const textContent = (raw.message?.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join(' ')
+    .trim();
+
+  return allCalls.map((call, idx) => ({
+    kind: 'tool_call',
+    timestamp: raw.timestamp || raw.ts || null,
+    text: idx === 0 ? (textContent || coerceText(raw.content)) : null, // Only first event gets the text
+    toolName: call.name || null,
+    command: call.arguments?.command || call.input?.command || null,
+    exitCode: null,
+    sessionId: raw.sessionId || raw.session_id || null,
+    _explodedIndex: idx
+  }));
+}
+
 // ============================================================================
 // Log Discovery
 // ============================================================================
@@ -787,6 +820,19 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
         continue;
       }
 
+      // v1.1.1: Handle multi-tool-call explosion
+      const toolCalls = normalizeToolCalls(raw);
+      if (toolCalls) {
+        for (const ev of toolCalls) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-tc' + ev._explodedIndex;
+          ev._fromWindow = 'head';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+        continue;
+      }
+
       const event = normalizeEvent(raw);
       if (event) {
         event._hash = hash;
@@ -807,6 +853,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
 
 /**
  * Read tail window of a log file (last N bytes/events)
+ * v1.1.1: Only skip first line if we started mid-line (not on newline boundary)
  * @param {string} filePath - Path to JSONL file
  * @param {number} tailStartByte - Byte offset to start reading
  * @param {number} maxBytes - Maximum bytes to read
@@ -819,6 +866,17 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
   const hashes = new Set();
   let bytesRead = 0;
   let isFirstLine = true;
+
+  // Check if we started mid-line by reading the previous byte
+  // If previous byte is \n, we're at a line boundary and first line is complete
+  let startedMidLine = false;
+  if (tailStartByte > 0) {
+    const fd = fs.openSync(filePath, 'r');
+    const prevByte = Buffer.alloc(1);
+    fs.readSync(fd, prevByte, 0, 1, tailStartByte - 1);
+    fs.closeSync(fd);
+    startedMidLine = prevByte[0] !== 0x0A; // 0x0A = '\n'
+  }
 
   const stream = fs.createReadStream(filePath, {
     start: tailStartByte,
@@ -834,8 +892,8 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
     const lineBytes = Buffer.byteLength(line, 'utf8') + 1;
     bytesRead += lineBytes;
 
-    // ALWAYS skip first line when starting mid-file (partial line)
-    if (isFirstLine && tailStartByte > 0) {
+    // Skip first line only if we started mid-line (partial line)
+    if (isFirstLine && startedMidLine) {
       isFirstLine = false;
       continue;
     }
@@ -858,6 +916,19 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
         for (const ev of persisted) {
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-' + ev._explodedIndex;
+          ev._fromWindow = 'tail';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+        continue;
+      }
+
+      // v1.1.1: Handle multi-tool-call explosion
+      const toolCalls = normalizeToolCalls(raw);
+      if (toolCalls) {
+        for (const ev of toolCalls) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-tc' + ev._explodedIndex;
           ev._fromWindow = 'tail';
           hashes.add(ev._hash);
           events.push(ev);
@@ -923,9 +994,10 @@ function mergeWindows(headResult, tailResult, fileSize, headBytes, tailBytes) {
 }
 
 /**
- * Fast-path scan: read first 8KB only, detect if full processing needed
+ * Fast-path scan: read head+tail 8KB each, detect if full processing needed
+ * v1.1.1: Now scans BOTH head and tail to catch resolution markers like "tests pass"
  * @param {string} filePath - Path to JSONL file
- * @param {number} maxBytes - Bytes to scan (default 8KB)
+ * @param {number} maxBytes - Bytes to scan per window (default 8KB)
  * @returns {Promise<object>} Fast-path scan result
  */
 async function fastPathScan(filePath, maxBytes = 8192) {
@@ -933,56 +1005,83 @@ async function fastPathScan(filePath, maxBytes = 8192) {
   let taskPreview = null;
   let hasToolFailures = false;
   let hasImportanceMarkers = false;
-  let eventCount = 0;
+  let headEventCount = 0;
+  let tailEventCount = 0;
 
-  const buffer = Buffer.alloc(maxBytes);
-  const fd = fs.openSync(filePath, 'r');
-  const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
-  fs.closeSync(fd);
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
 
-  const text = buffer.toString('utf-8', 0, bytesRead);
-  const lines = text.split('\n');
+  // Helper to scan a buffer for signals
+  function scanBuffer(text, isHead) {
+    const lines = text.split('\n');
+    let eventCount = 0;
 
-  for (const line of lines) {
-    const trimmed = line.replace(/\r$/, '').trim();
-    if (!trimmed) continue;
-    eventCount++;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.replace(/\r$/, '').trim();
+      if (!trimmed) continue;
 
-    try {
-      const raw = JSON.parse(trimmed);
+      // Skip first line of tail (likely partial)
+      if (!isHead && i === 0) continue;
 
-      // Extract sessionId
-      if (!sessionId && (raw.sessionId || raw.session_id)) {
-        sessionId = raw.sessionId || raw.session_id;
-      }
+      eventCount++;
 
-      // Extract taskPreview from first user event
-      if (!taskPreview && raw.type === 'user') {
-        taskPreview = truncate(coerceText(raw.content), 200);
-      }
+      try {
+        const raw = JSON.parse(trimmed);
 
-      // Check for tool failures
-      if ((raw.exit_code != null && raw.exit_code !== 0) ||
-          (raw.exitCode != null && raw.exitCode !== 0)) {
-        hasToolFailures = true;
-      }
-
-      // Check for importance markers in assistant text
-      if (raw.type === 'assistant') {
-        const assistantText = coerceText(raw.content || raw.message?.content);
-        if (IMPORTANCE_REGEX.test(assistantText)) {
-          hasImportanceMarkers = true;
+        // Extract sessionId (head only)
+        if (isHead && !sessionId && (raw.sessionId || raw.session_id)) {
+          sessionId = raw.sessionId || raw.session_id;
         }
+
+        // Extract taskPreview from first user event (head only)
+        if (isHead && !taskPreview && raw.type === 'user') {
+          taskPreview = truncate(coerceText(raw.content), 200);
+        }
+
+        // Check for tool failures (both head and tail)
+        if ((raw.exit_code != null && raw.exit_code !== 0) ||
+            (raw.exitCode != null && raw.exitCode !== 0)) {
+          hasToolFailures = true;
+        }
+
+        // Check for importance markers in assistant text (both head and tail)
+        if (raw.type === 'assistant') {
+          const assistantText = coerceText(raw.content || raw.message?.content);
+          if (IMPORTANCE_REGEX.test(assistantText)) {
+            hasImportanceMarkers = true;
+          }
+        }
+      } catch {
+        // Skip malformed
       }
-    } catch {
-      // Skip malformed
     }
+    return eventCount;
   }
 
+  // Read head
+  const headBuffer = Buffer.alloc(Math.min(maxBytes, fileSize));
+  const fd = fs.openSync(filePath, 'r');
+  const headBytesRead = fs.readSync(fd, headBuffer, 0, headBuffer.length, 0);
+  const headText = headBuffer.toString('utf-8', 0, headBytesRead);
+  headEventCount = scanBuffer(headText, true);
+
+  // Read tail (if file is large enough that head and tail don't overlap)
+  if (fileSize > maxBytes * 2) {
+    const tailStart = fileSize - maxBytes;
+    const tailBuffer = Buffer.alloc(maxBytes);
+    const tailBytesRead = fs.readSync(fd, tailBuffer, 0, maxBytes, tailStart);
+    const tailText = tailBuffer.toString('utf-8', 0, tailBytesRead);
+    tailEventCount = scanBuffer(tailText, false);
+  }
+
+  fs.closeSync(fd);
+
   // Estimate total event count from file size
-  const stat = fs.statSync(filePath);
-  const avgLineSize = bytesRead > 0 && eventCount > 0 ? bytesRead / eventCount : 500;
-  const estimatedEventCount = Math.round(stat.size / avgLineSize);
+  const totalBytesScanned = headBytesRead + (fileSize > maxBytes * 2 ? maxBytes : 0);
+  const totalEventsScanned = headEventCount + tailEventCount;
+  const avgLineSize = totalBytesScanned > 0 && totalEventsScanned > 0 ? totalBytesScanned / totalEventsScanned : 500;
+  const estimatedEventCount = Math.round(fileSize / avgLineSize);
 
   const needsFullProcessing = hasToolFailures || hasImportanceMarkers;
 
@@ -996,7 +1095,9 @@ async function fastPathScan(filePath, maxBytes = 8192) {
     reason: needsFullProcessing
       ? (hasToolFailures ? 'tool failures detected' : 'importance markers detected')
       : null,
-    estimatedEventCount
+    estimatedEventCount,
+    scannedHead: true,
+    scannedTail: fileSize > maxBytes * 2
   };
 }
 
