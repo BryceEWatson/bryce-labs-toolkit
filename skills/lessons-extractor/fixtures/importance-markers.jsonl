@@ -1,0 +1,16 @@
+{"type":"user","timestamp":"2026-01-20T10:00:00Z","sessionId":"importance-test-001","content":"Help me implement a new authentication feature"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:05Z","sessionId":"importance-test-001","content":"I'll help you implement the authentication feature. Let me create a PLAN for this task."}
+{"type":"assistant","timestamp":"2026-01-20T10:00:10Z","sessionId":"importance-test-001","content":"## PLAN\n\n1. Create auth middleware\n2. Implement login endpoint\n3. Add session management\n4. Write tests"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:15Z","sessionId":"importance-test-001","content":"### Acceptance Criteria\n\n- Users can log in with email/password\n- Sessions persist for 24 hours\n- Invalid credentials return 401"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:20Z","sessionId":"importance-test-001","content":"### Files to modify\n\n- src/middleware/auth.ts\n- src/routes/login.ts\n- src/services/session.ts"}
+{"type":"assistant","timestamp":"2026-01-20T10:01:00Z","sessionId":"importance-test-001","content":"Let me start implementing the auth middleware..."}
+{"type":"tool_result","timestamp":"2026-01-20T10:01:30Z","sessionId":"importance-test-001","name":"Write","exit_code":0,"content":"File written successfully"}
+{"type":"assistant","timestamp":"2026-01-20T10:02:00Z","sessionId":"importance-test-001","content":"Now implementing the login endpoint..."}
+{"type":"tool_result","timestamp":"2026-01-20T10:02:30Z","sessionId":"importance-test-001","name":"Write","exit_code":0,"content":"File written successfully"}
+{"type":"assistant","timestamp":"2026-01-20T10:03:00Z","sessionId":"importance-test-001","content":"### Test plan\n\n1. Test valid login\n2. Test invalid credentials\n3. Test session expiry\n4. Test logout"}
+{"type":"assistant","timestamp":"2026-01-20T10:04:00Z","sessionId":"importance-test-001","content":"Running the tests now..."}
+{"type":"tool_result","timestamp":"2026-01-20T10:04:30Z","sessionId":"importance-test-001","name":"Bash","exit_code":0,"content":"All tests pass! 4 passed, 0 failed"}
+{"type":"assistant","timestamp":"2026-01-20T10:04:35Z","sessionId":"importance-test-001","content":"Tests pass! All 4 test cases completed successfully."}
+{"type":"assistant","timestamp":"2026-01-20T10:05:00Z","sessionId":"importance-test-001","content":"Build passes. No TypeScript errors."}
+{"type":"assistant","timestamp":"2026-01-20T10:05:30Z","sessionId":"importance-test-001","content":"Commit: feat(auth): add authentication middleware and login endpoint"}
+{"type":"assistant","timestamp":"2026-01-20T10:06:00Z","sessionId":"importance-test-001","content":"Ready for review. The PR is ready to be reviewed."}

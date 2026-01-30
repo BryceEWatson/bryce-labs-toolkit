@@ -1,0 +1,10 @@
+{"type":"user","timestamp":"2026-01-20T10:00:00Z","sessionId":"tool-calls-test-001","content":"Read the config file and run the build"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:05Z","sessionId":"tool-calls-test-001","tool_calls":[{"name":"Read","arguments":{"file_path":"config.json"}}]}
+{"type":"tool_result","timestamp":"2026-01-20T10:00:10Z","sessionId":"tool-calls-test-001","name":"Read","exit_code":0,"content":"{\"version\": \"1.0.0\"}"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:15Z","sessionId":"tool-calls-test-001","toolCalls":[{"name":"Bash","arguments":{"command":"npm run build"}}]}
+{"type":"tool_result","timestamp":"2026-01-20T10:00:30Z","sessionId":"tool-calls-test-001","name":"Bash","exit_code":0,"content":"Build successful"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:35Z","sessionId":"tool-calls-test-001","message":{"content":[{"type":"tool_use","id":"call_abc123","name":"Grep","input":{"pattern":"error","path":"logs/"}}]}}
+{"type":"tool_result","timestamp":"2026-01-20T10:00:40Z","sessionId":"tool-calls-test-001","name":"Grep","exit_code":0,"content":"No matches found"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:45Z","sessionId":"tool-calls-test-001","message":{"content":[{"type":"text","text":"Let me check the test results."},{"type":"tool_use","id":"call_def456","name":"Bash","input":{"command":"npm test"}}]}}
+{"type":"tool_result","timestamp":"2026-01-20T10:01:00Z","sessionId":"tool-calls-test-001","name":"Bash","exit_code":0,"content":"Tests passed: 15/15"}
+{"type":"assistant","timestamp":"2026-01-20T10:01:05Z","sessionId":"tool-calls-test-001","content":"All operations completed successfully. The build passes and all tests pass."}

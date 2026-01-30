@@ -19,31 +19,124 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const crypto = require('crypto');
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const TOOL_VERSION = '1.0.0';
+const TOOL_VERSION = '1.1.1';
 const MIN_NODE_VERSION = 14;
 
-// Default configuration values
+// Default configuration values (v1.1.0: nested structure)
 const DEFAULTS = {
   maxLogsPerRun: 50,
-  maxBytesPerLog: 100000,
-  maxEventsPerLog: 500,
   truncateContentLength: 3000,
-  contextEventsCount: 20,
-  resolutionEventsCount: 20,
-  errorWindowEvents: 5,
   skipExtractorSessions: true,
   cursorFile: '.lessons-cursor.json',
   maxRecentFiles: 200,
-  maxOutputSizeBytes: 5000000,  // 5MB (increased from 500KB to allow more events per session)
+  maxOutputSizeBytes: 5000000,  // 5MB
   followSymlinks: false,
   outputDir: 'docs/ai/lessons-extractor',
-  logGlob: '~/.claude/projects'
+  logGlob: '~/.claude/projects',
+
+  // Nested: windowing configuration (head+tail reading)
+  windowing: {
+    headBytes: 60000,      // First 60KB of file
+    tailBytes: 40000,      // Last 40KB of file
+    headEvents: 250,       // Max events from head window
+    tailEvents: 250        // Max events from tail window
+  },
+
+  // Nested: discovery configuration
+  discovery: {
+    maxDepth: 10,          // Directory depth limit (0=unlimited)
+    maxDirectories: 1000,  // Directory count limit (0=unlimited)
+    earlyStopCount: 0,     // Stop after N recent files (0=disabled)
+    earlyStopAgeDays: 7    // "Recent" = modified within N days
+  },
+
+  // Nested: sampling configuration
+  sampling: {
+    contextEvents: 20,           // Events from session start
+    resolutionEvents: 20,        // Events from session end
+    errorWindowEvents: 5,        // Events around errors
+    importanceWindowEvents: 5,   // Events around importance markers
+    taskPreviewLength: 200       // Max chars for taskPreview
+  },
+
+  // Deprecated keys (backward compat) - read but not written
+  maxBytesPerLog: 100000,      // DEPRECATED: use windowing.headBytes + tailBytes
+  maxEventsPerLog: 500,        // DEPRECATED: use windowing.headEvents + tailEvents
+  contextEventsCount: 20,      // DEPRECATED: use sampling.contextEvents
+  resolutionEventsCount: 20,   // DEPRECATED: use sampling.resolutionEvents
+  errorWindowEvents: 5         // DEPRECATED: use sampling.errorWindowEvents
 };
+
+/**
+ * Compute stable SHA-256 hash of raw JSONL line for deduplication
+ * @param {string} rawLine - The raw JSONL line string
+ * @returns {string} First 16 hex chars of SHA-256 hash
+ */
+function hashLine(rawLine) {
+  return crypto.createHash('sha256').update(rawLine, 'utf8').digest('hex').slice(0, 16);
+}
+
+/**
+ * Redact user home directory from file paths to avoid exposing usernames
+ * Replaces /Users/username/, /home/username/, C:\Users\username\ with ~/
+ * @param {string} filePath - The file path to redact
+ * @returns {string} Path with home directory replaced by ~
+ */
+function redactPath(filePath) {
+  if (!filePath) return filePath;
+  const homeDir = os.homedir();
+  // Normalize path separators for comparison
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const normalizedHome = homeDir.replace(/\\/g, '/');
+  if (normalizedPath.startsWith(normalizedHome)) {
+    return '~' + normalizedPath.slice(normalizedHome.length);
+  }
+  return filePath;
+}
+
+/**
+ * Migrate old flat config keys to nested structure
+ * @param {object} config - Raw config object
+ * @returns {object} Config with nested structure
+ */
+function migrateConfig(config) {
+  const pp = config.preprocessor || {};
+
+  // Migrate flat windowing keys to nested structure
+  if (!pp.windowing && (pp.maxBytesPerLog || pp.maxEventsPerLog)) {
+    pp.windowing = {
+      headBytes: Math.round((pp.maxBytesPerLog || 100000) * 0.6),
+      tailBytes: Math.round((pp.maxBytesPerLog || 100000) * 0.4),
+      headEvents: Math.round((pp.maxEventsPerLog || 500) * 0.5),
+      tailEvents: Math.round((pp.maxEventsPerLog || 500) * 0.5)
+    };
+  }
+
+  // Migrate flat sampling keys to nested structure
+  if (!pp.sampling && (pp.contextEventsCount || pp.resolutionEventsCount || pp.errorWindowEvents)) {
+    pp.sampling = {
+      contextEvents: pp.contextEventsCount ?? DEFAULTS.sampling.contextEvents,
+      resolutionEvents: pp.resolutionEventsCount ?? DEFAULTS.sampling.resolutionEvents,
+      errorWindowEvents: pp.errorWindowEvents ?? DEFAULTS.sampling.errorWindowEvents,
+      importanceWindowEvents: DEFAULTS.sampling.importanceWindowEvents,
+      taskPreviewLength: DEFAULTS.sampling.taskPreviewLength
+    };
+  }
+
+  // Initialize discovery if not present
+  if (!pp.discovery) {
+    pp.discovery = { ...DEFAULTS.discovery };
+  }
+
+  config.preprocessor = pp;
+  return config;
+}
 
 // Event types to keep during normalization
 const KEEP_EVENT_TYPES = ['user', 'assistant', 'tool_call', 'tool_result', 'error', 'system'];
@@ -67,6 +160,24 @@ const ERROR_PATTERNS = [
   /\bfailed\b.*\b(compile|build|test)/i,
   /error:|Error:|ERROR:/i
 ];
+
+// Importance markers for smart sampling (v1.1.0)
+const IMPORTANCE_MARKERS = [
+  { name: 'plan', pattern: /\bPLAN\b/i },
+  { name: 'acceptance_criteria', pattern: /\b(Acceptance\s+Criteria|AC:)/i },
+  { name: 'files_to_modify', pattern: /\bFiles?\s+to\s+(modify|change|update|create)/i },
+  { name: 'test_plan', pattern: /\bTest\s+plan\b/i },
+  { name: 'tests_pass', pattern: /\b(Tests?\s+pass|All\s+tests\s+pass)/i },
+  { name: 'build_passes', pattern: /\b(Build\s+pass|Build\s+succeed)/i },
+  { name: 'commit', pattern: /\b(Commit|committing|committed):/i },
+  { name: 'ready_for_review', pattern: /\b(Ready\s+for\s+review|PR\s+ready)/i }
+];
+
+// Compiled importance marker regex (once at startup)
+const IMPORTANCE_REGEX = new RegExp(
+  IMPORTANCE_MARKERS.map(m => m.pattern.source).join('|'),
+  'i'
+);
 
 // Default redaction patterns (compiled once at startup via compileRedactions)
 const DEFAULT_REDACT_PATTERNS = [
@@ -404,20 +515,22 @@ function extractText(raw) {
  * TIGHTENED: raw.name alone doesn't trigger tool_result
  */
 function detectEventKind(raw) {
-  // Check explicit type field
-  if (raw.type === 'user') return 'user';
-  if (raw.type === 'assistant') return 'assistant';
-  if (raw.type === 'error') return 'error';
-  if (raw.type === 'system') return 'system';
-
-  // Check for tool-related events
+  // Check for tool-related events FIRST (assistant can have tool_calls)
   if (raw.tool_calls || raw.toolCalls) return 'tool_call';
+  // Detect tool_use blocks in message.content (Claude API format)
+  if (Array.isArray(raw.message?.content) && raw.message.content.some(b => b.type === 'tool_use')) return 'tool_call';
 
   // TIGHTENED: tool_result detection requires explicit signals
   if (raw.type === 'tool_result' || raw.type === 'tool-results') return 'tool_result';
   if (raw.exit_code !== undefined || raw.exitCode !== undefined) return 'tool_result';
   if (raw.tool_result || raw.toolResult) return 'tool_result';
   if (Array.isArray(raw.tool_results)) return 'tool_result';
+
+  // Check explicit type field (after tool checks)
+  if (raw.type === 'user') return 'user';
+  if (raw.type === 'assistant') return 'assistant';
+  if (raw.type === 'error') return 'error';
+  if (raw.type === 'system') return 'system';
 
   // Skip noise events
   if (raw.type === 'queue-operation') return null;
@@ -434,13 +547,28 @@ function normalizeEvent(raw) {
   const kind = detectEventKind(raw);
   if (!kind) return null;
 
+  // Extract tool info from various sources (single value per event)
+  let toolName = raw.tool?.name || raw.name || null;
+  let command = raw.tool?.arguments?.command || raw.arguments?.command || null;
+
+  // For tool_call kind, also check tool_calls array and message.content tool_use blocks
+  if (kind === 'tool_call') {
+    const calls = raw.tool_calls || raw.toolCalls || [];
+    const contentCalls = (raw.message?.content || []).filter(b => b.type === 'tool_use');
+    const allCalls = [...calls, ...contentCalls];
+    if (allCalls.length > 0 && !toolName) {
+      toolName = allCalls[0].name || null;
+      command = allCalls[0].arguments?.command || allCalls[0].input?.command || null;
+    }
+  }
+
   return {
     kind,
     timestamp: raw.timestamp || raw.ts || null,
     text: extractText(raw),
-    toolName: raw.tool?.name || raw.name || null,
+    toolName,
     exitCode: raw.exit_code ?? raw.exitCode ?? null,
-    command: raw.tool?.arguments?.command || raw.arguments?.command || null,
+    command,
     sessionId: raw.sessionId || raw.session_id || null,
     metadata: {
       cwd: raw.cwd || null,
@@ -470,23 +598,97 @@ function normalizePersistedOutput(raw) {
   }));
 }
 
+/**
+ * Handle multi-tool-call messages
+ * v1.1.1: EXPLODE tool_calls and message.content tool_use blocks into multiple events
+ * This ensures toolNames[] and toolCallsDetected counts are accurate
+ */
+function normalizeToolCalls(raw) {
+  const calls = raw.tool_calls || raw.toolCalls || [];
+  const contentCalls = (raw.message?.content || []).filter(b => b.type === 'tool_use');
+  const allCalls = [...calls, ...contentCalls];
+
+  if (allCalls.length === 0) {
+    return null;
+  }
+
+  // Extract any text content from message.content (before/between tool_use blocks)
+  const textContent = (raw.message?.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join(' ')
+    .trim();
+
+  return allCalls.map((call, idx) => ({
+    kind: 'tool_call',
+    timestamp: raw.timestamp || raw.ts || null,
+    text: idx === 0 ? (textContent || coerceText(raw.content)) : null, // Only first event gets the text
+    toolName: call.name || null,
+    command: call.arguments?.command || call.input?.command || null,
+    exitCode: null,
+    sessionId: raw.sessionId || raw.session_id || null,
+    _explodedIndex: idx
+  }));
+}
+
 // ============================================================================
 // Log Discovery
 // ============================================================================
 
 /**
  * Recursively find JSONL files in a directory
+ * v1.1.0: Added depth limit, directory count limit, and early stop for recent files
+ *
+ * @param {string} dir - Directory to search
+ * @param {object} options - Search options
+ * @param {object} state - Internal state for tracking limits (auto-initialized on first call)
+ * @param {number} currentDepth - Current recursion depth (auto-tracked)
  */
-function findJsonlFiles(dir, options = {}) {
+function findJsonlFiles(dir, options = {}, state = null, currentDepth = 0) {
+  // Initialize state on first call
+  if (!state) {
+    state = {
+      directoriesScanned: 0,
+      recentFilesFound: 0,
+      stopped: false,
+      stopReason: null
+    };
+  }
+
+  // Early exit if stopped
+  if (state.stopped) {
+    return [];
+  }
+
   const results = [];
+  const discovery = options.discovery || {};
+
+  // Check depth limit
+  const maxDepth = discovery.maxDepth ?? DEFAULTS.discovery.maxDepth;
+  if (maxDepth > 0 && currentDepth > maxDepth) {
+    log('verbose', `  Depth limit (${maxDepth}) reached at: ${dir}`);
+    return results;
+  }
 
   if (!fs.existsSync(dir)) {
+    return results;
+  }
+
+  // Track directory count
+  state.directoriesScanned++;
+  const maxDirectories = discovery.maxDirectories ?? DEFAULTS.discovery.maxDirectories;
+  if (maxDirectories > 0 && state.directoriesScanned > maxDirectories) {
+    state.stopped = true;
+    state.stopReason = `Directory limit (${maxDirectories}) reached`;
+    log('verbose', `  ${state.stopReason}`);
     return results;
   }
 
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
+    if (state.stopped) break;
+
     const fullPath = path.join(dir, entry.name);
 
     // Skip symlinks if configured
@@ -500,8 +702,8 @@ function findJsonlFiles(dir, options = {}) {
         continue;
       }
 
-      // Recurse
-      results.push(...findJsonlFiles(fullPath, options));
+      // Recurse with incremented depth
+      results.push(...findJsonlFiles(fullPath, options, state, currentDepth + 1));
     } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
       // Skip agent-*.jsonl files
       if (entry.name.startsWith('agent-')) {
@@ -516,6 +718,21 @@ function findJsonlFiles(dir, options = {}) {
           mtimeMs: stat.mtimeMs,
           size: stat.size
         });
+
+        // Early stop check for recent files
+        const earlyStopCount = discovery.earlyStopCount ?? DEFAULTS.discovery.earlyStopCount;
+        if (earlyStopCount > 0) {
+          const earlyStopAgeDays = discovery.earlyStopAgeDays ?? DEFAULTS.discovery.earlyStopAgeDays;
+          const recentCutoffMs = Date.now() - (earlyStopAgeDays * 86400000);
+          if (stat.mtimeMs >= recentCutoffMs) {
+            state.recentFilesFound++;
+            if (state.recentFilesFound >= earlyStopCount) {
+              state.stopped = true;
+              state.stopReason = `Early stop: found ${earlyStopCount} recent files`;
+              log('verbose', `  ${state.stopReason}`);
+            }
+          }
+        }
       } catch (err) {
         log('verbose', `  Skipping unreadable file: ${fullPath}`);
       }
@@ -527,6 +744,7 @@ function findJsonlFiles(dir, options = {}) {
 
 /**
  * Discover log files without shell commands
+ * v1.1.0: Passes discovery scalability options to findJsonlFiles
  */
 function discoverLogs(options) {
   const logDir = expandPath(options.logDir || DEFAULTS.logGlob);
@@ -538,8 +756,10 @@ function discoverLogs(options) {
     return [];
   }
 
+  // v1.1.0: Pass discovery scalability options
   let files = findJsonlFiles(logDir, {
-    followSymlinks: options.followSymlinks ?? DEFAULTS.followSymlinks
+    followSymlinks: options.followSymlinks ?? DEFAULTS.followSymlinks,
+    discovery: options.discovery || {}
   });
 
   // Filter by since date
@@ -564,15 +784,398 @@ function discoverLogs(options) {
 }
 
 // ============================================================================
+// Two-Window File Reading (v1.1.0)
+// ============================================================================
+
+/**
+ * Read head window of a log file (first N bytes/events)
+ * @param {string} filePath - Path to JSONL file
+ * @param {number} maxBytes - Maximum bytes to read
+ * @param {number} maxEvents - Maximum events to extract
+ * @param {object} compiledRedactions - Redaction patterns
+ * @returns {Promise<{events: Array, hashes: Set, bytesRead: number}>}
+ */
+async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions) {
+  const events = [];
+  const hashes = new Set();
+  let bytesRead = 0;
+
+  const stream = fs.createReadStream(filePath, {
+    start: 0,
+    end: maxBytes - 1,
+    encoding: 'utf-8'
+  });
+
+  const rl = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1; // +1 for newline
+    bytesRead += lineBytes;
+
+    if (events.length >= maxEvents) break;
+
+    const trimmedLine = line.replace(/\r$/, ''); // Handle CRLF
+    if (!trimmedLine.trim()) continue;
+
+    const hash = hashLine(trimmedLine);
+
+    try {
+      const raw = JSON.parse(trimmedLine);
+
+      // Handle persisted-output explosion
+      const persisted = normalizePersistedOutput(raw);
+      if (persisted) {
+        for (const ev of persisted) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-' + ev._explodedIndex;
+          ev._fromWindow = 'head';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+        continue;
+      }
+
+      // v1.1.1: Handle multi-tool-call explosion
+      const toolCalls = normalizeToolCalls(raw);
+      if (toolCalls) {
+        for (const ev of toolCalls) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-tc' + ev._explodedIndex;
+          ev._fromWindow = 'head';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+        continue;
+      }
+
+      const event = normalizeEvent(raw);
+      if (event) {
+        event._hash = hash;
+        event._fromWindow = 'head';
+        hashes.add(hash);
+        events.push(event);
+      }
+    } catch {
+      // Skip malformed JSON
+    }
+  }
+
+  rl.close();
+  stream.destroy();
+
+  return { events, hashes, bytesRead };
+}
+
+/**
+ * Read tail window of a log file (last N bytes/events)
+ * v1.1.1: Only skip first line if we started mid-line (not on newline boundary)
+ * @param {string} filePath - Path to JSONL file
+ * @param {number} tailStartByte - Byte offset to start reading
+ * @param {number} maxBytes - Maximum bytes to read
+ * @param {number} maxEvents - Maximum events to extract
+ * @param {object} compiledRedactions - Redaction patterns
+ * @returns {Promise<{events: Array, hashes: Set, bytesRead: number}>}
+ */
+async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, compiledRedactions) {
+  const events = [];
+  const hashes = new Set();
+  let bytesRead = 0;
+  let isFirstLine = true;
+
+  // Check if we started mid-line by reading the previous byte
+  // If previous byte is \n, we're at a line boundary and first line is complete
+  let startedMidLine = false;
+  if (tailStartByte > 0) {
+    const fd = fs.openSync(filePath, 'r');
+    const prevByte = Buffer.alloc(1);
+    fs.readSync(fd, prevByte, 0, 1, tailStartByte - 1);
+    fs.closeSync(fd);
+    startedMidLine = prevByte[0] !== 0x0A; // 0x0A = '\n'
+  }
+
+  const stream = fs.createReadStream(filePath, {
+    start: tailStartByte,
+    encoding: 'utf-8'
+  });
+
+  const rl = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1;
+    bytesRead += lineBytes;
+
+    // Skip first line only if we started mid-line (partial line)
+    if (isFirstLine && startedMidLine) {
+      isFirstLine = false;
+      continue;
+    }
+    isFirstLine = false;
+
+    if (bytesRead > maxBytes) break;
+    if (events.length >= maxEvents) break;
+
+    const trimmedLine = line.replace(/\r$/, ''); // Handle CRLF
+    if (!trimmedLine.trim()) continue;
+
+    const hash = hashLine(trimmedLine);
+
+    try {
+      const raw = JSON.parse(trimmedLine);
+
+      // Handle persisted-output explosion
+      const persisted = normalizePersistedOutput(raw);
+      if (persisted) {
+        for (const ev of persisted) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-' + ev._explodedIndex;
+          ev._fromWindow = 'tail';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+        continue;
+      }
+
+      // v1.1.1: Handle multi-tool-call explosion
+      const toolCalls = normalizeToolCalls(raw);
+      if (toolCalls) {
+        for (const ev of toolCalls) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-tc' + ev._explodedIndex;
+          ev._fromWindow = 'tail';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+        continue;
+      }
+
+      const event = normalizeEvent(raw);
+      if (event) {
+        event._hash = hash;
+        event._fromWindow = 'tail';
+        hashes.add(hash);
+        events.push(event);
+      }
+    } catch {
+      // Skip malformed JSON
+    }
+  }
+
+  rl.close();
+  stream.destroy();
+
+  return { events, hashes, bytesRead };
+}
+
+/**
+ * Merge head and tail windows with hash-based deduplication
+ * Gap is stored as metadata, NOT as an event
+ * @param {object} headResult - Result from readHeadWindow
+ * @param {object} tailResult - Result from readTailWindow
+ * @param {number} fileSize - Total file size in bytes
+ * @param {number} headBytes - Configured head bytes
+ * @param {number} tailBytes - Configured tail bytes
+ * @returns {{events: Array, windowing: object}}
+ */
+function mergeWindows(headResult, tailResult, fileSize, headBytes, tailBytes) {
+  const merged = [];
+  const seenHashes = new Set();
+
+  // Add all head events
+  for (const event of headResult.events) {
+    seenHashes.add(event._hash);
+    merged.push(event);
+  }
+
+  // Add tail events, skip duplicates by hash (head wins)
+  for (const event of tailResult.events) {
+    if (seenHashes.has(event._hash)) continue;
+    seenHashes.add(event._hash);
+    merged.push(event);
+  }
+
+  // Gap as METADATA object, NOT injected as an event
+  const overlapped = (headBytes + tailBytes) >= fileSize;
+  const windowing = {
+    headBytesRead: headResult.bytesRead,
+    tailBytesRead: tailResult.bytesRead,
+    overlapped,
+    bytesSkipped: overlapped ? 0 : Math.max(0, fileSize - headBytes - tailBytes)
+  };
+
+  return { events: merged, windowing };
+}
+
+/**
+ * Fast-path scan: read head+tail 8KB each, detect if full processing needed
+ * v1.1.1: Now scans BOTH head and tail to catch resolution markers like "tests pass"
+ * @param {string} filePath - Path to JSONL file
+ * @param {number} maxBytes - Bytes to scan per window (default 8KB)
+ * @returns {Promise<object>} Fast-path scan result
+ */
+async function fastPathScan(filePath, maxBytes = 8192) {
+  let sessionId = null;
+  let taskPreview = null;
+  let hasToolFailures = false;
+  let hasImportanceMarkers = false;
+  let headEventCount = 0;
+  let tailEventCount = 0;
+
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+
+  // Helper to scan a buffer for signals
+  function scanBuffer(text, isHead) {
+    const lines = text.split('\n');
+    let eventCount = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.replace(/\r$/, '').trim();
+      if (!trimmed) continue;
+
+      // Skip first line of tail (likely partial)
+      if (!isHead && i === 0) continue;
+
+      eventCount++;
+
+      try {
+        const raw = JSON.parse(trimmed);
+
+        // Extract sessionId (head only)
+        if (isHead && !sessionId && (raw.sessionId || raw.session_id)) {
+          sessionId = raw.sessionId || raw.session_id;
+        }
+
+        // Extract taskPreview from first user event (head only)
+        if (isHead && !taskPreview && raw.type === 'user') {
+          taskPreview = truncate(coerceText(raw.content), 200);
+        }
+
+        // Check for tool failures (both head and tail)
+        if ((raw.exit_code != null && raw.exit_code !== 0) ||
+            (raw.exitCode != null && raw.exitCode !== 0)) {
+          hasToolFailures = true;
+        }
+
+        // Check for importance markers in assistant text (both head and tail)
+        if (raw.type === 'assistant') {
+          const assistantText = coerceText(raw.content || raw.message?.content);
+          if (IMPORTANCE_REGEX.test(assistantText)) {
+            hasImportanceMarkers = true;
+          }
+        }
+      } catch {
+        // Skip malformed
+      }
+    }
+    return eventCount;
+  }
+
+  // Read head
+  const headBuffer = Buffer.alloc(Math.min(maxBytes, fileSize));
+  const fd = fs.openSync(filePath, 'r');
+  const headBytesRead = fs.readSync(fd, headBuffer, 0, headBuffer.length, 0);
+  const headText = headBuffer.toString('utf-8', 0, headBytesRead);
+  headEventCount = scanBuffer(headText, true);
+
+  // Read tail (if file is large enough that head and tail don't overlap)
+  if (fileSize > maxBytes * 2) {
+    const tailStart = fileSize - maxBytes;
+    const tailBuffer = Buffer.alloc(maxBytes);
+    const tailBytesRead = fs.readSync(fd, tailBuffer, 0, maxBytes, tailStart);
+    const tailText = tailBuffer.toString('utf-8', 0, tailBytesRead);
+    tailEventCount = scanBuffer(tailText, false);
+  }
+
+  fs.closeSync(fd);
+
+  // Estimate total event count from file size
+  const totalBytesScanned = headBytesRead + (fileSize > maxBytes * 2 ? maxBytes : 0);
+  const totalEventsScanned = headEventCount + tailEventCount;
+  const avgLineSize = totalBytesScanned > 0 && totalEventsScanned > 0 ? totalBytesScanned / totalEventsScanned : 500;
+  const estimatedEventCount = Math.round(fileSize / avgLineSize);
+
+  const needsFullProcessing = hasToolFailures || hasImportanceMarkers;
+
+  return {
+    mode: 'fast',
+    sessionId: sessionId || path.basename(filePath, '.jsonl'),
+    taskPreview: taskPreview || '[No user message found]',
+    hasToolFailures,
+    hasImportanceMarkers,
+    needsFullProcessing,
+    reason: needsFullProcessing
+      ? (hasToolFailures ? 'tool failures detected' : 'importance markers detected')
+      : null,
+    estimatedEventCount,
+    scannedHead: true,
+    scannedTail: fileSize > maxBytes * 2
+  };
+}
+
+/**
+ * Compute session-level aggregates from events
+ * @param {Array} events - Normalized events
+ * @param {number} maxLength - Max chars for text fields
+ * @returns {object} Session aggregates
+ */
+function computeSessionAggregates(events, maxLength = 200) {
+  const toolNameSet = new Set();
+  const kindsCount = {};
+  let firstUserText = null;
+  let firstAssistantText = null;
+
+  for (const event of events) {
+    // Count by kind
+    kindsCount[event.kind] = (kindsCount[event.kind] || 0) + 1;
+
+    // Collect distinct tool names
+    if (event.toolName) toolNameSet.add(event.toolName);
+
+    // First user message
+    if (!firstUserText && event.kind === 'user' && event.text) {
+      firstUserText = truncate(event.text, maxLength);
+    }
+
+    // First assistant message
+    if (!firstAssistantText && event.kind === 'assistant' && event.text) {
+      firstAssistantText = truncate(event.text, maxLength);
+    }
+  }
+
+  return {
+    taskPreview: firstUserText || '[No user message found]',
+    firstUserText: firstUserText || '[No user message found]',
+    firstAssistantText: firstAssistantText || '[No assistant response found]',
+    toolNames: Array.from(toolNameSet).sort(),
+    kindsCount
+  };
+}
+
+// ============================================================================
 // Extractor Session Detection
 // ============================================================================
 
 /**
  * Detect if a session is running the extractor (should be skipped)
+ * v1.1.0: Also checks tail events if there's a gap
+ * @param {Array} events - Normalized events
+ * @param {object} windowing - Windowing metadata (optional)
  */
-function isExtractorSession(events) {
-  // Only check first 20 user/system events
-  const checkEvents = events
+function isExtractorSession(events, windowing = null) {
+  // Check head events (first 20 user/system events from head window)
+  const headEvents = events
+    .filter(e => e._fromWindow === 'head' && (e.kind === 'user' || e.kind === 'system'))
+    .slice(0, 20);
+
+  // If no _fromWindow markers, fall back to checking all events (backward compat)
+  const checkEvents = headEvents.length > 0 ? headEvents : events
     .filter(e => e.kind === 'user' || e.kind === 'system')
     .slice(0, 20);
 
@@ -581,6 +1184,22 @@ function isExtractorSession(events) {
     for (const marker of EXTRACTOR_MARKERS) {
       if (marker.test(event.text)) {
         return true;
+      }
+    }
+  }
+
+  // v1.1.0: Also check tail events if there's a gap (marker might be missed in head)
+  if (windowing && !windowing.overlapped) {
+    const tailEvents = events
+      .filter(e => e._fromWindow === 'tail' && (e.kind === 'user' || e.kind === 'system'))
+      .slice(0, 10);
+
+    for (const event of tailEvents) {
+      if (!event.text) continue;
+      for (const marker of EXTRACTOR_MARKERS) {
+        if (marker.test(event.text)) {
+          return true;
+        }
       }
     }
   }
@@ -682,26 +1301,49 @@ function applyRedaction(obj, compiledRegexes) {
 /**
  * Compute which event indices to keep
  */
-function computeSampleIndices(totalEvents, failureIndices, config) {
+/**
+ * Compute sample indices for event selection
+ * v1.1.0: Added importance window support, nested config
+ * @param {number} totalEvents - Total event count
+ * @param {number[]} failureIndices - Indices of tool failures
+ * @param {number[]} importanceIndices - Indices of importance markers (v1.1.0)
+ * @param {object} config - Configuration object
+ * @returns {number[]} Sorted indices to keep
+ */
+function computeSampleIndices(totalEvents, failureIndices, importanceIndices, config) {
   const indices = new Set();
+  config = config || {};
+
+  // Use nested config or fall back to deprecated flat keys
+  const sampling = config.sampling || {};
+  const contextCount = sampling.contextEvents ?? config.contextEventsCount ?? DEFAULTS.sampling.contextEvents;
+  const resolutionCount = sampling.resolutionEvents ?? config.resolutionEventsCount ?? DEFAULTS.sampling.resolutionEvents;
+  const errorWindow = sampling.errorWindowEvents ?? config.errorWindowEvents ?? DEFAULTS.sampling.errorWindowEvents;
+  const importanceWindow = sampling.importanceWindowEvents ?? DEFAULTS.sampling.importanceWindowEvents;
 
   // First N (context)
-  const contextCount = config.contextEventsCount ?? DEFAULTS.contextEventsCount;
   for (let i = 0; i < Math.min(contextCount, totalEvents); i++) {
     indices.add(i);
   }
 
-  // Last M (resolution)
-  const resolutionCount = config.resolutionEventsCount ?? DEFAULTS.resolutionEventsCount;
+  // Last M (resolution) - now correctly from ACTUAL end of merged events
   for (let i = Math.max(0, totalEvents - resolutionCount); i < totalEvents; i++) {
     indices.add(i);
   }
 
   // Error windows
-  const windowSize = config.errorWindowEvents ?? DEFAULTS.errorWindowEvents;
   for (const fi of failureIndices) {
-    const start = Math.max(0, fi - windowSize);
-    const end = Math.min(totalEvents, fi + windowSize + 1);
+    const start = Math.max(0, fi - errorWindow);
+    const end = Math.min(totalEvents, fi + errorWindow + 1);
+    for (let i = start; i < end; i++) {
+      indices.add(i);
+    }
+  }
+
+  // v1.1.0: Importance marker windows
+  for (const ii of (importanceIndices || [])) {
+    const start = Math.max(0, ii - importanceWindow);
+    const end = Math.min(totalEvents, ii + importanceWindow + 1);
     for (let i = start; i < end; i++) {
       indices.add(i);
     }
@@ -730,79 +1372,61 @@ function truncateEvent(event, maxLength) {
  * @param {object} config - Configuration object
  * @param {Array<{regex: RegExp, source: string}>} compiledRedactions - Pre-compiled redaction regexes
  */
+/**
+ * Process a single log file
+ * v1.1.0: Uses two-window mode for large files, tracks importance markers
+ */
 async function processLogFile(filePath, config, compiledRedactions) {
-  const allEvents = [];
-  const toolFailureIndices = [];
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
 
-  const maxEvents = config.maxEventsPerLog ?? DEFAULTS.maxEventsPerLog;
-  const maxBytes = config.maxBytesPerLog ?? DEFAULTS.maxBytesPerLog;
+  // Get windowing config (nested or deprecated flat)
+  const windowing = config.windowing || {};
+  const headBytes = windowing.headBytes ?? Math.round((config.maxBytesPerLog ?? DEFAULTS.windowing.headBytes + DEFAULTS.windowing.tailBytes) * 0.6);
+  const tailBytes = windowing.tailBytes ?? Math.round((config.maxBytesPerLog ?? DEFAULTS.windowing.headBytes + DEFAULTS.windowing.tailBytes) * 0.4);
+  const headEvents = windowing.headEvents ?? Math.round((config.maxEventsPerLog ?? DEFAULTS.windowing.headEvents + DEFAULTS.windowing.tailEvents) * 0.5);
+  const tailEvents = windowing.tailEvents ?? Math.round((config.maxEventsPerLog ?? DEFAULTS.windowing.headEvents + DEFAULTS.windowing.tailEvents) * 0.5);
 
-  let bytesRead = 0;
-  let lineNumber = 0;
+  let allEvents = [];
+  let windowingMeta = null;
+
+  // Decide: two-window mode for large files, single-pass for small
+  if (fileSize > headBytes + tailBytes) {
+    // Two-window mode
+    log('verbose', `  Using two-window mode (file: ${fileSize} bytes > ${headBytes + tailBytes} budget)`);
+
+    const headResult = await readHeadWindow(filePath, headBytes, headEvents, compiledRedactions);
+    const tailStartByte = Math.max(0, fileSize - tailBytes);
+    const tailResult = await readTailWindow(filePath, tailStartByte, tailBytes, tailEvents, compiledRedactions);
+
+    const merged = mergeWindows(headResult, tailResult, fileSize, headBytes, tailBytes);
+    allEvents = merged.events;
+    windowingMeta = merged.windowing;
+
+    log('verbose', `  Head: ${headResult.events.length} events, Tail: ${tailResult.events.length} events, Merged: ${allEvents.length} (overlapped: ${windowingMeta.overlapped})`);
+  } else {
+    // Single-pass mode for small files (backward compatible)
+    log('verbose', `  Using single-pass mode (file: ${fileSize} bytes <= ${headBytes + tailBytes} budget)`);
+    const headResult = await readHeadWindow(filePath, fileSize, headEvents + tailEvents, compiledRedactions);
+    allEvents = headResult.events;
+    windowingMeta = {
+      headBytesRead: headResult.bytesRead,
+      tailBytesRead: 0,
+      overlapped: true,
+      bytesSkipped: 0
+    };
+  }
+
+  // Extract session metadata from events
   let sessionId = null;
   let metadata = {};
 
-  const rl = readline.createInterface({
-    input: fs.createReadStream(filePath),
-    crlfDelay: Infinity
-  });
-
-  for await (const line of rl) {
-    lineNumber++;
-    bytesRead += line.length;
-
-    // Hard guardrail: stop if too many events
-    if (allEvents.length >= maxEvents) {
-      log('verbose', `  Reached maxEventsPerLog (${maxEvents}), stopping at line ${lineNumber}`);
-      break;
+  for (const event of allEvents) {
+    if (!sessionId && event.sessionId) {
+      sessionId = event.sessionId;
     }
-
-    // Hard guardrail: stop if too many bytes
-    if (bytesRead >= maxBytes) {
-      log('verbose', `  Reached maxBytesPerLog (${maxBytes}), stopping at line ${lineNumber}`);
-      break;
-    }
-
-    let raw;
-    try {
-      raw = JSON.parse(line);
-    } catch (err) {
-      log('verbose', `  Skipping malformed JSON at line ${lineNumber}`);
-      continue;
-    }
-
-    // Extract session metadata from early events
-    if (!sessionId && (raw.sessionId || raw.session_id)) {
-      sessionId = raw.sessionId || raw.session_id;
-    }
-    if (raw.cwd && !metadata.cwd) metadata.cwd = raw.cwd;
-    if ((raw.gitBranch || raw.git_branch) && !metadata.gitBranch) {
-      metadata.gitBranch = raw.gitBranch || raw.git_branch;
-    }
-
-    // Handle persisted-output with nested tool_results
-    const normalized = (raw.type === 'persisted-output' && Array.isArray(raw.tool_results))
-      ? normalizePersistedOutput(raw)
-      : [normalizeEvent(raw)];
-
-    for (const event of normalized.filter(Boolean)) {
-      // Store minimal fields only
-      const minimal = {
-        kind: event.kind,
-        timestamp: event.timestamp,
-        text: event.text,
-        toolName: event.toolName,
-        exitCode: event.exitCode,
-        command: event.command
-      };
-      allEvents.push(minimal);
-
-      // Index bookkeeping tied directly to allEvents.length
-      const eventIdx = allEvents.length - 1;
-      if (isToolFailure(minimal)) {
-        toolFailureIndices.push(eventIdx);
-      }
-    }
+    if (event.metadata?.cwd && !metadata.cwd) metadata.cwd = event.metadata.cwd;
+    if (event.metadata?.gitBranch && !metadata.gitBranch) metadata.gitBranch = event.metadata.gitBranch;
   }
 
   // Generate session ID if not found
@@ -810,8 +1434,25 @@ async function processLogFile(filePath, config, compiledRedactions) {
     sessionId = path.basename(filePath, '.jsonl');
   }
 
-  // Compute sample indices
-  const keepIndices = computeSampleIndices(allEvents.length, toolFailureIndices, config);
+  // Index tool failures and importance markers
+  const toolFailureIndices = [];
+  const importanceIndices = [];
+
+  for (let i = 0; i < allEvents.length; i++) {
+    const event = allEvents[i];
+
+    if (isToolFailure(event)) {
+      toolFailureIndices.push(i);
+    }
+
+    // v1.1.0: Track importance markers in assistant text
+    if (event.kind === 'assistant' && event.text && IMPORTANCE_REGEX.test(event.text)) {
+      importanceIndices.push(i);
+    }
+  }
+
+  // Compute sample indices with importance markers
+  const keepIndices = computeSampleIndices(allEvents.length, toolFailureIndices, importanceIndices, config);
 
   // Extract evidence snippets BEFORE truncation
   const evidenceSnippets = toolFailureIndices.map(idx => {
@@ -827,7 +1468,7 @@ async function processLogFile(filePath, config, compiledRedactions) {
   // Apply redaction and truncation to kept events
   const truncateLength = config.truncateContentLength ?? DEFAULTS.truncateContentLength;
   const sampledEvents = keepIndices.map(i => {
-    let event = allEvents[i];
+    let event = { ...allEvents[i] };
     event = applyRedaction(event, compiledRedactions);
     return truncateEvent(event, truncateLength);
   });
@@ -835,14 +1476,29 @@ async function processLogFile(filePath, config, compiledRedactions) {
   // Extract and redact tool failures
   const toolFailures = extractToolFailures(allEvents).map(f => applyRedaction(f, compiledRedactions));
 
+  // v1.1.0: Compute session aggregates
+  const sampling = config.sampling || {};
+  const taskPreviewLength = sampling.taskPreviewLength ?? DEFAULTS.sampling.taskPreviewLength;
+  const aggregates = computeSessionAggregates(allEvents, taskPreviewLength);
+
   return {
     sessionId,
+    logPath: redactPath(filePath),
     metadata,
     totalEvents: allEvents.length,
+    sampledEventCount: sampledEvents.length,
     events: sampledEvents,
     toolFailures,
     evidence: evidenceSnippets,
-    isExtractorSession: isExtractorSession(allEvents)
+    isExtractorSession: isExtractorSession(allEvents, windowingMeta),
+
+    // v1.1.0: New derived fields
+    windowing: windowingMeta,
+    taskPreview: aggregates.taskPreview,
+    firstUserText: aggregates.firstUserText,
+    firstAssistantText: aggregates.firstAssistantText,
+    toolNames: aggregates.toolNames,
+    kindsCount: aggregates.kindsCount
   };
 }
 
@@ -977,6 +1633,35 @@ function computePerSessionBudget(sessionCount, config) {
  * Generate preprocessor output
  */
 function generateOutput(sessions, stats, config) {
+  // Compute toolStats from session aggregates (v1.1.0)
+  let toolCallsDetected = 0;
+  let toolResultsDetected = 0;
+  let toolFailuresDetected = 0;
+
+  for (const session of sessions) {
+    const kinds = session.kindsCount || {};
+    toolCallsDetected += kinds.tool_call || 0;
+    toolResultsDetected += kinds.tool_result || 0;
+    toolFailuresDetected += session.toolFailures?.length || 0;
+  }
+
+  // Group sessions by project path (derived from logPath) (v1.1.0)
+  const projects = {};
+  for (const session of sessions) {
+    if (!session.logPath) continue;
+    // Extract project path from ~/.claude/projects/<encoded-path>/conversation.jsonl
+    const match = session.logPath.match(/[/\\]projects[/\\]([^/\\]+)[/\\]/);
+    if (match) {
+      const projectKey = match[1];
+      if (!projects[projectKey]) {
+        projects[projectKey] = { sessions: [], totalEvents: 0, toolFailures: 0 };
+      }
+      projects[projectKey].sessions.push(session.sessionId);
+      projects[projectKey].totalEvents += session.totalEvents || 0;
+      projects[projectKey].toolFailures += session.toolFailures?.length || 0;
+    }
+  }
+
   return {
     preprocessorVersion: TOOL_VERSION,
     processedAt: new Date().toISOString(),
@@ -990,7 +1675,14 @@ function generateOutput(sessions, stats, config) {
       totalEvents: sessions.reduce((sum, s) => sum + s.totalEvents, 0),
       sampledEvents: sessions.reduce((sum, s) => sum + s.events.length, 0),
       toolFailures: sessions.reduce((sum, s) => sum + s.toolFailures.length, 0),
-      skipped: stats.skipped
+      skipped: stats.skipped,
+      // v1.1.0: Tool counters and project grouping
+      toolStats: {
+        toolCallsDetected,
+        toolResultsDetected,
+        toolFailuresDetected
+      },
+      projects
     },
     sessions: sessions.map(s => ({
       sessionId: s.sessionId,
@@ -1000,7 +1692,14 @@ function generateOutput(sessions, stats, config) {
       sampledEventCount: s.events.length,
       events: s.events,
       toolFailures: s.toolFailures,
-      evidence: s.evidence
+      evidence: s.evidence,
+      // v1.1.0: New derived fields
+      windowing: s.windowing,
+      taskPreview: s.taskPreview,
+      firstUserText: s.firstUserText,
+      firstAssistantText: s.firstAssistantText,
+      toolNames: s.toolNames,
+      kindsCount: s.kindsCount
     }))
   };
 }
@@ -1023,7 +1722,12 @@ function parseArgs(argv) {
     config: null,
     cursor: null,
     selfTest: false,
-    help: false
+    help: false,
+    // v1.1.0: New flags
+    fast: false,       // Fast-path mode: only deep-process sessions with failures/markers
+    fullDetail: false, // Force full processing for all sessions (default behavior)
+    audit: false,      // Print tool/event statistics to stdout, skip file output
+    auditFormat: 'json' // Format for audit output: json or text
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -1072,6 +1776,23 @@ function parseArgs(argv) {
       case '-h':
         opts.help = true;
         break;
+      // v1.1.0: New flags
+      case '--fast':
+        opts.fast = true;
+        break;
+      case '--full-detail':
+        opts.fullDetail = true;
+        break;
+      case '--audit':
+        opts.audit = true;
+        break;
+      case '--audit-format':
+        const fmt = args[++i];
+        if (fmt !== 'json' && fmt !== 'text') {
+          throw new Error(`Invalid --audit-format: ${fmt}. Must be 'json' or 'text'.`);
+        }
+        opts.auditFormat = fmt;
+        break;
       default:
         if (arg.startsWith('-')) {
           throw new Error(`Unknown option: ${arg}`);
@@ -1111,6 +1832,15 @@ OPTIONS:
   --config, -c <path>  Path to config.json
 
   --cursor <path>      Path to cursor file
+
+  --fast               Fast-path mode: quick scan (8KB) to detect failures/markers,
+                       only deep-process sessions with signals
+
+  --full-detail        Force full processing for all sessions (default behavior)
+
+  --audit              Print tool/event statistics to stdout, skip file output
+
+  --audit-format <fmt> Format for audit output: json (default) or text
 
   --self-test          Run built-in tests
 
@@ -1244,7 +1974,8 @@ async function runSelfTest() {
 
   // Test 11: Sampling strategy
   console.log('\nSampling Strategy:');
-  const indices = computeSampleIndices(100, [50], { contextEventsCount: 10, resolutionEventsCount: 10, errorWindowEvents: 5 });
+  // v1.1.0: Updated signature with importanceIndices as third parameter
+  const indices = computeSampleIndices(100, [50], [], { contextEventsCount: 10, resolutionEventsCount: 10, errorWindowEvents: 5 });
   assert(indices.includes(0) && indices.includes(9), 'includes first 10 (context)');
   assert(indices.includes(90) && indices.includes(99), 'includes last 10 (resolution)');
   assert(indices.includes(45) && indices.includes(55), 'includes error window around 50');
@@ -1464,10 +2195,10 @@ async function runSelfTest() {
       assert(error === null, `processes array-content fixture without error (${error?.message || 'OK'})`);
       assert(result !== null && result.events.length > 0, 'extracts events from array-content fixture');
 
-      // Verify text was extracted correctly
-      const assistantEvents = result.events.filter(e => e.kind === 'assistant');
+      // Verify text was extracted correctly (v1.1.0: text may be in tool_call events too)
+      const eventsWithText = result.events.filter(e => e.kind === 'assistant' || e.kind === 'tool_call');
       assert(
-        assistantEvents.some(e => e.text && e.text.includes('Response part 1.')),
+        eventsWithText.some(e => e.text && e.text.includes('Response part 1.')),
         'extracts text from content block arrays'
       );
     } else {
@@ -1496,6 +2227,218 @@ async function runSelfTest() {
     } else {
       assert(false, 'tool-failures.jsonl fixture not found');
     }
+  }
+
+  // v1.1.0: New tests for windowing, tool normalization, fast-path, etc.
+
+  // Test: Hash function determinism
+  console.log('\nHash Function (v1.1.0):');
+  {
+    const line1 = '{"type":"user","content":"test"}';
+    const line2 = '{"type":"user","content":"test"}';
+    const line3 = '{"type":"user","content":"different"}';
+    const hash1 = hashLine(line1);
+    const hash2 = hashLine(line2);
+    const hash3 = hashLine(line3);
+    assert(hash1 === hash2, 'same line produces same hash');
+    assert(hash1 !== hash3, 'different lines produce different hashes');
+    assert(hash1.length === 16, 'hash is 16 hex chars');
+  }
+
+  // Test: Tool call detection with message.content
+  console.log('\nTool Call Detection (v1.1.0):');
+  {
+    const toolCallsArray = { tool_calls: [{ name: 'Read' }] };
+    const toolCallsAlt = { toolCalls: [{ name: 'Bash' }] };
+    const messageContent = { message: { content: [{ type: 'tool_use', name: 'Grep' }] } };
+    const noToolCall = { type: 'assistant', content: 'Just text' };
+
+    assert(detectEventKind(toolCallsArray) === 'tool_call', 'detects tool_calls array');
+    assert(detectEventKind(toolCallsAlt) === 'tool_call', 'detects toolCalls array');
+    assert(detectEventKind(messageContent) === 'tool_call', 'detects message.content tool_use');
+    assert(detectEventKind(noToolCall) === 'assistant', 'does not false-positive on text');
+  }
+
+  // Test: normalizeEvent extracts toolName from various sources
+  console.log('\nTool Name Extraction (v1.1.0):');
+  {
+    const fromToolCalls = normalizeEvent({ type: 'assistant', tool_calls: [{ name: 'Read', arguments: { command: 'cat file.txt' } }] });
+    const fromMessageContent = normalizeEvent({ message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } });
+
+    assert(fromToolCalls.toolName === 'Read', 'extracts toolName from tool_calls');
+    assert(fromMessageContent.toolName === 'Bash', 'extracts toolName from message.content');
+    assert(fromMessageContent.command === 'npm test', 'extracts command from input');
+  }
+
+  // Test: computeSessionAggregates
+  console.log('\nSession Aggregates (v1.1.0):');
+  {
+    const testEvents = [
+      { kind: 'user', text: 'Help me fix the bug in auth.ts' },
+      { kind: 'assistant', text: 'I will help you fix the bug.' },
+      { kind: 'tool_result', toolName: 'Read', text: 'file contents' },
+      { kind: 'tool_result', toolName: 'Edit', text: 'file edited' },
+      { kind: 'tool_call', toolName: 'Read', text: null },
+      { kind: 'tool_call', toolName: 'Bash', text: null },
+      { kind: 'assistant', text: 'Done!' }
+    ];
+
+    const aggregates = computeSessionAggregates(testEvents, 200);
+
+    assert(aggregates.firstUserText === 'Help me fix the bug in auth.ts', 'extracts firstUserText');
+    assert(aggregates.firstAssistantText === 'I will help you fix the bug.', 'extracts firstAssistantText');
+    assert(aggregates.taskPreview === 'Help me fix the bug in auth.ts', 'taskPreview equals firstUserText');
+    assert(Array.isArray(aggregates.toolNames), 'toolNames is array');
+    assert(aggregates.toolNames.includes('Read'), 'toolNames includes Read');
+    assert(aggregates.toolNames.includes('Edit'), 'toolNames includes Edit');
+    assert(aggregates.toolNames.includes('Bash'), 'toolNames includes Bash');
+    assert(aggregates.kindsCount.user === 1, 'kindsCount.user correct');
+    assert(aggregates.kindsCount.assistant === 2, 'kindsCount.assistant correct');
+    assert(aggregates.kindsCount.tool_result === 2, 'kindsCount.tool_result correct');
+    assert(aggregates.kindsCount.tool_call === 2, 'kindsCount.tool_call correct');
+  }
+
+  // Test: Importance markers detection
+  console.log('\nImportance Markers (v1.1.0):');
+  {
+    const planText = 'Here is my PLAN for this task';
+    const acText = 'Acceptance Criteria: user can login';
+    const filesText = 'Files to modify: src/auth.ts';
+    const testPlanText = 'Test plan: 1. unit tests 2. integration';
+    const testPassText = 'All tests pass!';
+    const buildText = 'Build passes with no errors';
+    const commitText = 'Commit: feat(auth): add login';
+    const prText = 'Ready for review. PR ready!';
+    const normalText = 'Just regular assistant text';
+
+    assert(IMPORTANCE_REGEX.test(planText), 'detects PLAN marker');
+    assert(IMPORTANCE_REGEX.test(acText), 'detects Acceptance Criteria');
+    assert(IMPORTANCE_REGEX.test(filesText), 'detects Files to modify');
+    assert(IMPORTANCE_REGEX.test(testPlanText), 'detects Test plan');
+    assert(IMPORTANCE_REGEX.test(testPassText), 'detects tests pass');
+    assert(IMPORTANCE_REGEX.test(buildText), 'detects Build passes');
+    assert(IMPORTANCE_REGEX.test(commitText), 'detects Commit:');
+    assert(IMPORTANCE_REGEX.test(prText), 'detects PR ready');
+    assert(!IMPORTANCE_REGEX.test(normalText), 'does not false-positive on normal text');
+  }
+
+  // Test: fastPathScan function
+  console.log('\nFast Path Scan (v1.1.0):');
+  {
+    const fixturesDir = path.join(getSkillRoot(), 'fixtures');
+
+    // Test with importance markers fixture
+    const markersPath = path.join(fixturesDir, 'importance-markers.jsonl');
+    if (fs.existsSync(markersPath)) {
+      const markerResult = await fastPathScan(markersPath);
+      assert(markerResult.hasImportanceMarkers === true, 'detects importance markers');
+      assert(markerResult.needsFullProcessing === true, 'needs full processing with markers');
+      assert(markerResult.taskPreview !== null, 'extracts taskPreview');
+    }
+
+    // Test with overlapping (small, no failures/markers)
+    const overlapPath = path.join(fixturesDir, 'overlapping-events.jsonl');
+    if (fs.existsSync(overlapPath)) {
+      const overlapResult = await fastPathScan(overlapPath);
+      assert(overlapResult.needsFullProcessing === false, 'small file without failures/markers skipped');
+    }
+  }
+
+  // Test: Config migration
+  console.log('\nConfig Migration (v1.1.0):');
+  {
+    const oldConfig = {
+      preprocessor: {
+        maxBytesPerLog: 100000,
+        maxEventsPerLog: 500,
+        contextEventsCount: 15,
+        resolutionEventsCount: 15,
+        errorWindowEvents: 3
+      }
+    };
+
+    const migrated = migrateConfig({ ...oldConfig });
+
+    assert(migrated.preprocessor.windowing !== undefined, 'creates windowing object');
+    assert(migrated.preprocessor.windowing.headBytes === 60000, 'migrates headBytes (60% of 100000)');
+    assert(migrated.preprocessor.windowing.tailBytes === 40000, 'migrates tailBytes (40% of 100000)');
+    assert(migrated.preprocessor.windowing.headEvents === 250, 'migrates headEvents (50% of 500)');
+    assert(migrated.preprocessor.sampling !== undefined, 'creates sampling object');
+    assert(migrated.preprocessor.sampling.contextEvents === 15, 'migrates contextEvents');
+    assert(migrated.preprocessor.sampling.errorWindowEvents === 3, 'migrates errorWindowEvents');
+  }
+
+  // Test: Sampling with importance indices
+  console.log('\nSampling with Importance (v1.1.0):');
+  {
+    const indices = computeSampleIndices(100, [30], [60], { sampling: { contextEvents: 5, resolutionEvents: 5, errorWindowEvents: 2, importanceWindowEvents: 3 } });
+    assert(indices.includes(0) && indices.includes(4), 'includes context (first 5)');
+    assert(indices.includes(95) && indices.includes(99), 'includes resolution (last 5)');
+    assert(indices.includes(28) && indices.includes(32), 'includes error window around 30');
+    assert(indices.includes(57) && indices.includes(63), 'includes importance window around 60');
+  }
+
+  // Test: Tool-calls-shapes fixture
+  console.log('\nTool Calls Shapes Fixture (v1.1.0):');
+  {
+    const fixturesDir = path.join(getSkillRoot(), 'fixtures');
+    const shapesPath = path.join(fixturesDir, 'tool-calls-shapes.jsonl');
+    if (fs.existsSync(shapesPath)) {
+      const lines = fs.readFileSync(shapesPath, 'utf-8').split('\n').filter(Boolean);
+      const events = lines.map(line => {
+        try {
+          const raw = JSON.parse(line);
+          return normalizeEvent(raw);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+
+      const toolCalls = events.filter(e => e.kind === 'tool_call');
+      assert(toolCalls.length >= 4, `detects ${toolCalls.length} tool_calls (expected >= 4)`);
+      assert(toolCalls.some(tc => tc.toolName === 'Bash'), 'extracts Bash tool');
+      assert(toolCalls.some(tc => tc.toolName === 'Read'), 'extracts Read tool');
+      assert(toolCalls.some(tc => tc.toolName === 'Grep'), 'extracts Grep from message.content');
+    } else {
+      assert(false, 'tool-calls-shapes.jsonl fixture not found');
+    }
+  }
+
+  // Test: Discovery scalability defaults
+  console.log('\nDiscovery Scalability (v1.1.0):');
+  {
+    assert(DEFAULTS.discovery.maxDepth === 10, 'default maxDepth is 10');
+    assert(DEFAULTS.discovery.maxDirectories === 1000, 'default maxDirectories is 1000');
+    assert(DEFAULTS.discovery.earlyStopCount === 0, 'default earlyStopCount is 0 (disabled)');
+    assert(DEFAULTS.discovery.earlyStopAgeDays === 7, 'default earlyStopAgeDays is 7');
+  }
+
+  // Test: Windowing defaults
+  console.log('\nWindowing Defaults (v1.1.0):');
+  {
+    assert(DEFAULTS.windowing.headBytes === 60000, 'default headBytes is 60000');
+    assert(DEFAULTS.windowing.tailBytes === 40000, 'default tailBytes is 40000');
+    assert(DEFAULTS.windowing.headEvents === 250, 'default headEvents is 250');
+    assert(DEFAULTS.windowing.tailEvents === 250, 'default tailEvents is 250');
+  }
+
+  // Test: Path redaction (v1.1.1)
+  console.log('\nPath Redaction (v1.1.1):');
+  {
+    const homeDir = os.homedir();
+    const testPath = path.join(homeDir, '.claude', 'projects', 'test', 'conversation.jsonl');
+    const redacted = redactPath(testPath);
+    assert(redacted.startsWith('~'), 'redacts home directory to ~');
+    assert(!redacted.includes(homeDir.replace(/\\/g, '/')), 'home dir not in redacted path');
+    assert(redacted.includes('.claude/projects'), 'preserves relative path structure');
+
+    // Test non-home paths are unchanged
+    const nonHomePath = '/some/other/path.jsonl';
+    assert(redactPath(nonHomePath) === nonHomePath, 'non-home paths unchanged');
+
+    // Test null/empty handling
+    assert(redactPath(null) === null, 'null returns null');
+    assert(redactPath('') === '', 'empty string returns empty');
   }
 
   // Summary
@@ -1586,12 +2529,13 @@ async function main() {
       }
     }
 
-    // Discover logs
+    // Discover logs (v1.1.0: includes discovery scalability options)
     const allLogs = discoverLogs({
       logDir: config.logGlob || DEFAULTS.logGlob,
       since: opts.since,
       maxLogs: config.maxLogsPerRun,
-      followSymlinks: config.followSymlinks
+      followSymlinks: config.followSymlinks,
+      discovery: config.discovery || {}
     });
 
     if (allLogs.length === 0) {
@@ -1632,7 +2576,8 @@ async function main() {
     const stats = {
       skipped: {
         extractorSessions: 0,
-        unchanged: allLogs.length - logsToProcess.length
+        unchanged: allLogs.length - logsToProcess.length,
+        fastPathSkipped: 0  // v1.1.0: Sessions skipped by fast-path mode
       },
       // Run-level error tracking for cursor gating
       logsAttempted: 0,
@@ -1646,6 +2591,34 @@ async function main() {
       stats.logsAttempted++;
 
       try {
+        // v1.1.0: Fast-path mode - quick scan to detect if full processing needed
+        if (opts.fast && !opts.fullDetail) {
+          const fastResult = await fastPathScan(logFile.path);
+          if (!fastResult.needsFullProcessing) {
+            // Skip deep processing, add minimal session entry
+            sessions.push({
+              sessionId: fastResult.sessionId || path.basename(logFile.path, '.jsonl'),
+              logPath: redactPath(logFile.path),
+              mtime: logFile.mtime.toISOString(),
+              mode: 'fast',
+              taskPreview: fastResult.taskPreview,
+              hasToolFailures: fastResult.hasToolFailures,
+              hasImportanceMarkers: fastResult.hasImportanceMarkers,
+              // Minimal data - no deep processing
+              totalEvents: 0,
+              events: [],
+              toolFailures: [],
+              toolNames: [],
+              kindsCount: {}
+            });
+            stats.skipped.fastPathSkipped++;
+            stats.logsSucceeded++;
+            log('verbose', `  Fast-path: skipped (no failures/markers)`);
+            continue;
+          }
+          log('verbose', `  Fast-path: needs full processing (${fastResult.reason})`);
+        }
+
         const result = await processLogFile(logFile.path, processConfig, compiledRedactions);
 
         // Skip extractor sessions
@@ -1658,7 +2631,7 @@ async function main() {
 
         sessions.push({
           ...result,
-          logPath: logFile.path,
+          logPath: redactPath(logFile.path),
           mtime: logFile.mtime.toISOString()
         });
 
@@ -1673,6 +2646,53 @@ async function main() {
 
     // Generate output
     const output = generateOutput(sessions, stats, config);
+
+    // v1.1.0: Audit mode - print stats to stdout and exit (no file writes)
+    if (opts.audit) {
+      const auditData = {
+        summary: output.summary,
+        logsFound: allLogs.length,
+        logsProcessed: logsToProcess.length,
+        sessionsWritten: sessions.length,
+        stats: {
+          logsAttempted: stats.logsAttempted,
+          logsSucceeded: stats.logsSucceeded,
+          logsFailed: stats.logsFailed,
+          fastPathSkipped: stats.skipped.fastPathSkipped,
+          extractorSessionsSkipped: stats.skipped.extractorSessions
+        }
+      };
+
+      if (opts.auditFormat === 'text') {
+        console.log('=== Lessons Preprocessor Audit ===\n');
+        console.log(`Logs found:              ${auditData.logsFound}`);
+        console.log(`Logs processed:          ${auditData.logsProcessed}`);
+        console.log(`Sessions written:        ${auditData.sessionsWritten}`);
+        console.log(`Logs succeeded:          ${auditData.stats.logsSucceeded}`);
+        console.log(`Logs failed:             ${auditData.stats.logsFailed}`);
+        console.log(`Fast-path skipped:       ${auditData.stats.fastPathSkipped}`);
+        console.log(`Extractor sessions:      ${auditData.stats.extractorSessionsSkipped}`);
+        console.log('');
+        console.log('--- Summary ---');
+        console.log(`Total events:            ${auditData.summary.totalEvents}`);
+        console.log(`Sampled events:          ${auditData.summary.sampledEvents}`);
+        console.log(`Tool failures:           ${auditData.summary.toolFailures}`);
+        console.log('');
+        console.log('--- Tool Stats ---');
+        console.log(`Tool calls detected:     ${auditData.summary.toolStats?.toolCallsDetected || 0}`);
+        console.log(`Tool results detected:   ${auditData.summary.toolStats?.toolResultsDetected || 0}`);
+        console.log(`Tool failures detected:  ${auditData.summary.toolStats?.toolFailuresDetected || 0}`);
+        console.log('');
+        console.log('--- Projects ---');
+        const projects = auditData.summary.projects || {};
+        for (const [key, val] of Object.entries(projects)) {
+          console.log(`  ${key}: ${val.sessions?.length || 0} sessions, ${val.totalEvents || 0} events, ${val.toolFailures || 0} failures`);
+        }
+      } else {
+        console.log(JSON.stringify(auditData, null, 2));
+      }
+      process.exit(0);
+    }
 
     // Write output
     if (!fs.existsSync(path.dirname(outputPath))) {
@@ -1710,6 +2730,9 @@ async function main() {
     log('info', `  Tool failures detected: ${output.summary.toolFailures}`);
     if (stats.skipped.extractorSessions > 0) {
       log('info', `  Skipped extractor sessions: ${stats.skipped.extractorSessions}`);
+    }
+    if (stats.skipped.fastPathSkipped > 0) {
+      log('info', `  Fast-path skipped: ${stats.skipped.fastPathSkipped}`);
     }
     log('info', `  Cursor written: ${cursorWritten ? 'Yes' : 'No'}`)
 

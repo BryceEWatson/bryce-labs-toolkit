@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-01-20T10:00:00Z","sessionId":"overlap-test-001","content":"Fix the bug"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:05Z","sessionId":"overlap-test-001","content":"I'll fix the bug."}
+{"type":"tool_result","timestamp":"2026-01-20T10:00:10Z","sessionId":"overlap-test-001","name":"Read","exit_code":0,"content":"File content"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:15Z","sessionId":"overlap-test-001","content":"Found the issue."}
+{"type":"tool_result","timestamp":"2026-01-20T10:00:20Z","sessionId":"overlap-test-001","name":"Edit","exit_code":0,"content":"File edited"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:25Z","sessionId":"overlap-test-001","content":"Bug fixed!"}

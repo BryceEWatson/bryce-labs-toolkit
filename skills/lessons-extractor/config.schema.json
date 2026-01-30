@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "lessons-extractor configuration",
-  "description": "Configuration schema for the lessons-extractor skill",
+  "description": "Configuration schema for the lessons-extractor skill (v1.1.0)",
   "type": "object",
   "properties": {
     "logGlob": {
@@ -41,47 +41,12 @@
           "minimum": 1,
           "maximum": 500
         },
-        "maxBytesPerLog": {
-          "type": "integer",
-          "description": "Maximum bytes to read from each log file",
-          "default": 100000,
-          "minimum": 5000,
-          "maximum": 1000000
-        },
-        "maxEventsPerLog": {
-          "type": "integer",
-          "description": "Maximum events to extract per log file",
-          "default": 500,
-          "minimum": 10,
-          "maximum": 2000
-        },
         "truncateContentLength": {
           "type": "integer",
           "description": "Maximum length for content fields before truncation",
           "default": 3000,
           "minimum": 500,
           "maximum": 10000
-        },
-        "contextEventsCount": {
-          "type": "integer",
-          "description": "Number of events to keep from session start for context",
-          "default": 20,
-          "minimum": 5,
-          "maximum": 100
-        },
-        "resolutionEventsCount": {
-          "type": "integer",
-          "description": "Number of events to keep from session end for resolution",
-          "default": 20,
-          "minimum": 5,
-          "maximum": 100
-        },
-        "errorWindowEvents": {
-          "type": "integer",
-          "description": "Events before/after each error to include",
-          "default": 5,
-          "minimum": 1,
-          "maximum": 20
         },
         "skipExtractorSessions": {
           "type": "boolean",
@@ -111,6 +76,143 @@
           "type": "boolean",
           "description": "Follow symbolic links when discovering logs",
           "default": false
+        },
+        "windowing": {
+          "type": "object",
+          "description": "Two-window reading configuration (head+tail for large files)",
+          "properties": {
+            "headBytes": {
+              "type": "integer",
+              "description": "Bytes to read from file start",
+              "default": 60000,
+              "minimum": 5000,
+              "maximum": 500000
+            },
+            "tailBytes": {
+              "type": "integer",
+              "description": "Bytes to read from file end",
+              "default": 40000,
+              "minimum": 5000,
+              "maximum": 500000
+            },
+            "headEvents": {
+              "type": "integer",
+              "description": "Max events from head window",
+              "default": 250,
+              "minimum": 10,
+              "maximum": 1000
+            },
+            "tailEvents": {
+              "type": "integer",
+              "description": "Max events from tail window",
+              "default": 250,
+              "minimum": 10,
+              "maximum": 1000
+            }
+          },
+          "additionalProperties": false
+        },
+        "discovery": {
+          "type": "object",
+          "description": "Log discovery scalability settings",
+          "properties": {
+            "maxDepth": {
+              "type": "integer",
+              "description": "Directory depth limit (0=unlimited)",
+              "default": 10,
+              "minimum": 0,
+              "maximum": 50
+            },
+            "maxDirectories": {
+              "type": "integer",
+              "description": "Directory count limit (0=unlimited)",
+              "default": 1000,
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "earlyStopCount": {
+              "type": "integer",
+              "description": "Stop after N recent files (0=disabled)",
+              "default": 0,
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "earlyStopAgeDays": {
+              "type": "integer",
+              "description": "Recent = modified within N days",
+              "default": 7,
+              "minimum": 1,
+              "maximum": 90
+            }
+          },
+          "additionalProperties": false
+        },
+        "sampling": {
+          "type": "object",
+          "description": "Event sampling configuration",
+          "properties": {
+            "contextEvents": {
+              "type": "integer",
+              "description": "Events from session start",
+              "default": 20,
+              "minimum": 5,
+              "maximum": 100
+            },
+            "resolutionEvents": {
+              "type": "integer",
+              "description": "Events from session end",
+              "default": 20,
+              "minimum": 5,
+              "maximum": 100
+            },
+            "errorWindowEvents": {
+              "type": "integer",
+              "description": "Events around errors",
+              "default": 5,
+              "minimum": 1,
+              "maximum": 20
+            },
+            "importanceWindowEvents": {
+              "type": "integer",
+              "description": "Events around importance markers",
+              "default": 5,
+              "minimum": 1,
+              "maximum": 20
+            },
+            "taskPreviewLength": {
+              "type": "integer",
+              "description": "Max chars for taskPreview field",
+              "default": 200,
+              "minimum": 50,
+              "maximum": 1000
+            }
+          },
+          "additionalProperties": false
+        },
+        "maxBytesPerLog": {
+          "type": "integer",
+          "description": "DEPRECATED: Use windowing.headBytes + windowing.tailBytes instead",
+          "deprecated": true
+        },
+        "maxEventsPerLog": {
+          "type": "integer",
+          "description": "DEPRECATED: Use windowing.headEvents + windowing.tailEvents instead",
+          "deprecated": true
+        },
+        "contextEventsCount": {
+          "type": "integer",
+          "description": "DEPRECATED: Use sampling.contextEvents instead",
+          "deprecated": true
+        },
+        "resolutionEventsCount": {
+          "type": "integer",
+          "description": "DEPRECATED: Use sampling.resolutionEvents instead",
+          "deprecated": true
+        },
+        "errorWindowEvents": {
+          "type": "integer",
+          "description": "DEPRECATED: Use sampling.errorWindowEvents instead",
+          "deprecated": true
         }
       },
       "additionalProperties": false
