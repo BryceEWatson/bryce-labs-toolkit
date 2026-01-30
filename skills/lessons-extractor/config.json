@@ -12,16 +12,33 @@
   "outputDir": "docs/ai/lessons-extractor",
   "preprocessor": {
     "maxLogsPerRun": 50,
-    "maxBytesPerLog": 100000,
-    "maxEventsPerLog": 500,
     "truncateContentLength": 3000,
-    "contextEventsCount": 20,
-    "resolutionEventsCount": 20,
-    "errorWindowEvents": 5,
     "skipExtractorSessions": true,
     "cursorFile": ".lessons-cursor.json",
     "maxRecentFiles": 200,
     "maxOutputSizeBytes": 5000000,
-    "followSymlinks": false
+    "followSymlinks": false,
+
+    "windowing": {
+      "headBytes": 60000,
+      "tailBytes": 40000,
+      "headEvents": 250,
+      "tailEvents": 250
+    },
+
+    "discovery": {
+      "maxDepth": 10,
+      "maxDirectories": 1000,
+      "earlyStopCount": 0,
+      "earlyStopAgeDays": 7
+    },
+
+    "sampling": {
+      "contextEvents": 20,
+      "resolutionEvents": 20,
+      "errorWindowEvents": 5,
+      "importanceWindowEvents": 5,
+      "taskPreviewLength": 200
+    }
   }
 }
