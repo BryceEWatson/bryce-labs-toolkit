@@ -669,8 +669,9 @@ function normalizeToolResults(raw) {
     // Extract exit code from various field names
     let exitCode = block.exit_code ?? block.exitCode ?? block.output?.exit_code ?? null;
 
-    // Handle is_error: true when exit_code is missing
-    if (exitCode === null && block.is_error === true) {
+    // is_error: true is authoritative - override exit_code regardless of value
+    // Some tools emit exit_code: 0 alongside is_error: true
+    if (block.is_error === true) {
       exitCode = 1;  // Treat as failure
     }
 
@@ -3119,6 +3120,7 @@ async function runSelfTest() {
   // Test: normalizeToolResults with is_error flag
   console.log('\nnormalizeToolResults is_error (v1.3.0):');
   {
+    // Test 1: is_error alone (no exit_code)
     const rawWithError = {
       type: 'user',
       message: {
@@ -3129,6 +3131,18 @@ async function runSelfTest() {
     };
     const exploded = normalizeToolResults(rawWithError);
     assert(exploded[0].exitCode === 1, 'is_error converts to exitCode 1');
+
+    // Test 2: is_error overrides exit_code: 0 (authoritative)
+    const rawWithBothFlags = {
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 't2', content: 'Error but exit 0', exit_code: 0, is_error: true }
+        ]
+      }
+    };
+    const exploded2 = normalizeToolResults(rawWithBothFlags);
+    assert(exploded2[0].exitCode === 1, 'is_error overrides exit_code: 0');
   }
 
   // Test: normalizeToolResults maps tool_use_id to toolName
