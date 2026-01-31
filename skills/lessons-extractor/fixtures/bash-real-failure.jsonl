@@ -1,0 +1,5 @@
+{"type":"system","timestamp":"2026-01-20T10:00:00.000Z","sessionId":"bash-fail-test-001"}
+{"type":"user","timestamp":"2026-01-20T10:00:01.000Z","content":"Run the build"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:02.000Z","content":"I'll run the build command.","tool_calls":[{"name":"Bash","arguments":{"command":"npm run build"}}]}
+{"type":"tool_result","name":"Bash","timestamp":"2026-01-20T10:00:03.000Z","content":"error: TypeScript compilation failed\nError: Cannot find module './missing'\nBuild failed with 2 errors","exit_code":1}
+{"type":"assistant","timestamp":"2026-01-20T10:00:04.000Z","content":"The build failed due to a missing module. Let me check what's wrong."}

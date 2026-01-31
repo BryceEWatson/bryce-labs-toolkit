@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "lessons-extractor configuration",
-  "description": "Configuration schema for the lessons-extractor skill (v1.1.0)",
+  "description": "Configuration schema for the lessons-extractor skill (v1.4.0)",
   "type": "object",
   "properties": {
     "logGlob": {
@@ -217,6 +217,52 @@
               "type": "boolean",
               "description": "Preserve user tags/notes when updating entries",
               "default": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "failureDetection": {
+          "type": "object",
+          "description": "Tool failure detection configuration (v1.4.0)",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "description": "Detection mode: strict (exitCode only), balanced (+ fatal patterns for shell tools), heuristic (+ broad patterns with threshold)",
+              "enum": ["strict", "balanced", "heuristic"],
+              "default": "strict"
+            },
+            "regexToolAllowlist": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Tools eligible for regex-based failure detection",
+              "default": ["Bash", "PowerShell"]
+            },
+            "regexToolDenylist": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Tools excluded from regex fallback (takes precedence over allowlist)",
+              "default": ["Read", "Edit", "Write", "Glob", "Grep"]
+            },
+            "minBroadMatches": {
+              "type": "integer",
+              "description": "Minimum broad pattern matches to trigger failure (heuristic mode)",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "additionalProperties": false
+        },
+        "scopeDetection": {
+          "type": "object",
+          "description": "Run scope detection for lesson generation guidance (v1.4.0)",
+          "properties": {
+            "incrementalThreshold": {
+              "type": "integer",
+              "description": "Minimum new sessions for 'substantial' scope (below = 'incremental')",
+              "default": 5,
+              "minimum": 1,
+              "maximum": 50
             }
           },
           "additionalProperties": false

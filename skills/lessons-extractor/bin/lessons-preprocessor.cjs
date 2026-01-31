@@ -25,7 +25,7 @@ const crypto = require('crypto');
 // Constants
 // ============================================================================
 
-const TOOL_VERSION = '1.3.0';
+const TOOL_VERSION = '1.4.0';
 const MIN_NODE_VERSION = 14;
 
 // Default configuration values (v1.1.0: nested structure)
@@ -158,6 +158,7 @@ const EXTRACTOR_MARKERS = [
 ];
 
 // Tool failure detection patterns (regex-second, after checking exitCode)
+// DEPRECATED in v1.4.0: Use FATAL_PATTERNS and BROAD_PATTERNS with isToolFailureV2
 const ERROR_PATTERNS = [
   /command\s*not\s*found/i,
   /permission\s*denied/i,
@@ -168,6 +169,27 @@ const ERROR_PATTERNS = [
   /\bfailed\b.*\b(compile|build|test)/i,
   /error:|Error:|ERROR:/i
 ];
+
+// v1.4.0: Tiered failure detection patterns
+// FATAL_PATTERNS: High-confidence errors for shell tools (balanced + heuristic modes)
+const FATAL_PATTERNS = [
+  /command\s*not\s*found/i,
+  /permission\s*denied/i,
+  /ENOENT|no such file/i,
+  /Illegal\s*\\\s*at\s*end\s*of\s*pattern/i,
+  /CommandNotFoundException/i
+];
+
+// BROAD_PATTERNS: Lower-confidence signals requiring threshold (heuristic mode only)
+// IMPORTANT: No generic "Error:" pattern - that caused false positives with Read/Edit/Write
+const BROAD_PATTERNS = [
+  /Output too large.*saved to/i,
+  /\bfailed\b.*\b(compile|build|test)/i
+];
+
+// v1.4.0: Tool allowlist/denylist for regex-based detection
+const DEFAULT_REGEX_ALLOWLIST = ['Bash', 'PowerShell', 'shell'];
+const DEFAULT_REGEX_DENYLIST = ['Read', 'Edit', 'Write', 'Glob', 'Grep'];
 
 // Importance markers for smart sampling (v1.1.0)
 const IMPORTANCE_MARKERS = [
@@ -1349,6 +1371,7 @@ function isExtractorSession(events, windowing = null) {
 
 /**
  * Check if text matches any error pattern
+ * @deprecated v1.4.0: Use isToolFailureV2 with tiered detection
  */
 function matchesErrorPattern(text) {
   if (!text) return false;
@@ -1356,33 +1379,100 @@ function matchesErrorPattern(text) {
 }
 
 /**
- * Check if an event is a tool failure
+ * v1.4.0: Check if tool is eligible for regex-based failure detection
+ * @param {string|null} toolName - Tool name from event
+ * @param {object} config - Failure detection configuration
+ * @returns {boolean} Whether regex patterns should apply
  */
-function isToolFailure(event) {
-  if (event.kind !== 'tool_result') return false;
+function isToolEligibleForRegex(toolName, config) {
+  if (!toolName) return false;
 
-  // Field-first: check exitCode
+  const denylist = config.regexToolDenylist || DEFAULT_REGEX_DENYLIST;
+  const allowlist = config.regexToolAllowlist || DEFAULT_REGEX_ALLOWLIST;
+
+  // Denylist takes precedence
+  if (denylist.some(t => toolName.toLowerCase().includes(t.toLowerCase()))) {
+    return false;
+  }
+
+  return allowlist.some(t => toolName.toLowerCase().includes(t.toLowerCase()));
+}
+
+/**
+ * v1.4.0: Check if event is a tool failure with tiered detection
+ * @param {object} event - Normalized event
+ * @param {object} config - Failure detection configuration
+ * @returns {boolean} Whether event represents a failure
+ */
+function isToolFailureV2(event, config = {}) {
+  // Ignore explicit non-tool kinds (user, assistant, system)
+  const nonToolKinds = ['user', 'assistant', 'system'];
+  if (nonToolKinds.includes(event.kind)) {
+    return false;
+  }
+
+  // Tier A: exitCode is ALWAYS authoritative for tool_result or unknown kinds
+  // This ensures we catch failures even if kind wasn't normalized properly
   if (event.exitCode != null && event.exitCode !== 0) {
     return true;
   }
 
-  // Regex-second: fallback to content patterns
-  if (matchesErrorPattern(event.text)) {
+  // For regex fallback, require tool_result kind
+  if (event.kind !== 'tool_result') return false;
+
+  const mode = config.mode || 'strict';
+
+  // Strict mode: exitCode only, no regex fallback
+  if (mode === 'strict') {
+    return false;
+  }
+
+  // Check tool eligibility for regex fallback
+  if (!isToolEligibleForRegex(event.toolName, config)) {
+    return false;
+  }
+
+  // Tier B: Fatal patterns (balanced + heuristic modes)
+  if (FATAL_PATTERNS.some(p => p.test(event.text))) {
     return true;
+  }
+
+  // Tier C: Broad patterns with threshold (heuristic mode only)
+  if (mode === 'heuristic') {
+    const minMatches = config.minBroadMatches || 2;
+    const matchCount = BROAD_PATTERNS.filter(p => p.test(event.text)).length;
+    if (matchCount >= minMatches) {
+      return true;
+    }
   }
 
   return false;
 }
 
 /**
- * Extract tool failures from events
+ * Check if an event is a tool failure
+ * v1.4.0: Now accepts detectionConfig parameter, defaults to strict mode
+ * @param {object} event - Normalized event
+ * @param {object} detectionConfig - Detection configuration (default: strict mode)
+ * @returns {boolean} Whether event represents a failure
  */
-function extractToolFailures(events) {
+function isToolFailure(event, detectionConfig = { mode: 'strict' }) {
+  return isToolFailureV2(event, detectionConfig);
+}
+
+/**
+ * Extract tool failures from events
+ * v1.4.0: Now accepts detectionConfig parameter
+ * @param {object[]} events - Normalized events
+ * @param {object} detectionConfig - Detection configuration
+ * @returns {object[]} Array of failure objects
+ */
+function extractToolFailures(events, detectionConfig = { mode: 'strict' }) {
   const failures = [];
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
-    if (!isToolFailure(event)) continue;
+    if (!isToolFailure(event, detectionConfig)) continue;
 
     failures.push({
       tool: event.toolName,
@@ -1504,15 +1594,14 @@ function truncateEvent(event, maxLength) {
 
 /**
  * Process a single log file
+ * v1.1.0: Uses two-window mode for large files, tracks importance markers
+ * v1.4.0: Accepts detectionConfig for tiered failure detection
  * @param {string} filePath - Path to the log file
  * @param {object} config - Configuration object
  * @param {Array<{regex: RegExp, source: string}>} compiledRedactions - Pre-compiled redaction regexes
+ * @param {object} detectionConfig - Failure detection configuration (v1.4.0)
  */
-/**
- * Process a single log file
- * v1.1.0: Uses two-window mode for large files, tracks importance markers
- */
-async function processLogFile(filePath, config, compiledRedactions) {
+async function processLogFile(filePath, config, compiledRedactions, detectionConfig = { mode: 'strict' }) {
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
 
@@ -1577,7 +1666,7 @@ async function processLogFile(filePath, config, compiledRedactions) {
   for (let i = 0; i < allEvents.length; i++) {
     const event = allEvents[i];
 
-    if (isToolFailure(event)) {
+    if (isToolFailure(event, detectionConfig)) {
       toolFailureIndices.push(i);
     }
 
@@ -1610,7 +1699,7 @@ async function processLogFile(filePath, config, compiledRedactions) {
   });
 
   // Extract and redact tool failures
-  const toolFailures = extractToolFailures(allEvents).map(f => applyRedaction(f, compiledRedactions));
+  const toolFailures = extractToolFailures(allEvents, detectionConfig).map(f => applyRedaction(f, compiledRedactions));
 
   // v1.1.0: Compute session aggregates
   const sampling = config.sampling || {};
@@ -2084,9 +2173,54 @@ function computePerSessionBudget(sessionCount, config) {
 }
 
 /**
- * Generate preprocessor output
+ * v1.4.0: Determine run scope for lesson generation guidance
+ * @param {object} opts - CLI options
+ * @param {object} stats - Run statistics
+ * @param {object} scopeConfig - Scope detection configuration
+ * @returns {'full' | 'substantial' | 'incremental'}
  */
-function generateOutput(sessions, stats, config) {
+function determineRunScope(opts, stats, scopeConfig = {}) {
+  const threshold = scopeConfig.incrementalThreshold || 5;
+
+  // Full run if explicit flags used
+  if (opts.full || opts.reindex || opts.clear) {
+    return 'full';
+  }
+
+  // Count newly processed sessions (not cached, not fast)
+  const newlyProcessed = stats.sessionsWrittenByMode?.full || 0;
+
+  // Substantial if above threshold
+  if (newlyProcessed >= threshold) {
+    return 'substantial';
+  }
+
+  return 'incremental';
+}
+
+/**
+ * v1.4.0: Get reason for run scope determination
+ */
+function getRunScopeReason(opts, stats, scopeConfig = {}) {
+  if (opts.full) return '--full flag';
+  if (opts.reindex) return '--reindex flag';
+  if (opts.clear) return '--clear flag';
+
+  const threshold = scopeConfig.incrementalThreshold || 5;
+  const newlyProcessed = stats.sessionsWrittenByMode?.full || 0;
+
+  if (newlyProcessed >= threshold) {
+    return `${newlyProcessed} new sessions >= threshold (${threshold})`;
+  }
+
+  return `${newlyProcessed} new sessions < threshold (${threshold})`;
+}
+
+/**
+ * Generate preprocessor output
+ * v1.4.0: Now accepts opts for runScope detection
+ */
+function generateOutput(sessions, stats, config, opts = {}) {
   // Compute toolStats from session aggregates (v1.1.0)
   let toolCallsDetected = 0;
   let toolResultsDetected = 0;
@@ -2131,6 +2265,16 @@ function generateOutput(sessions, stats, config) {
       // v1.2.0: Use toolFailuresCount for cached sessions where toolFailures array is null
       toolFailures: sessions.reduce((sum, s) => sum + (s.toolFailures?.length ?? s.toolFailuresCount ?? 0), 0),
       skipped: stats.skipped,
+      // v1.4.0: Enhanced processing counters
+      logsDiscovered: stats.logsDiscovered || 0,
+      logsSkippedIncremental: stats.logsSkippedIncremental || 0,
+      logsAttempted: stats.logsAttempted || 0,
+      indexHits: stats.indexHits || 0,
+      indexMisses: stats.indexMisses || 0,
+      sessionsWrittenByMode: stats.sessionsWrittenByMode || { full: 0, cached: 0, fast: 0 },
+      // v1.4.0: Run scope for lesson generation guidance
+      runScope: determineRunScope(opts, stats, config.scopeDetection),
+      runScopeReason: getRunScopeReason(opts, stats, config.scopeDetection),
       // v1.1.0: Tool counters and project grouping
       toolStats: {
         toolCallsDetected,
@@ -2426,12 +2570,67 @@ async function runSelfTest() {
   assert(Array.isArray(exploded) && exploded.length === 2, 'explodes into multiple events');
   assert(exploded[0].kind === 'tool_result' && exploded[0].toolName === 'Read', 'first event correct');
 
-  // Test 7: Tool failure detection
-  console.log('\nTool Failure Detection:');
+  // Test 7: Tool failure detection (legacy tests with balanced mode for backward compat)
+  console.log('\nTool Failure Detection (legacy):');
+  const balancedConfig = { mode: 'balanced' };
   assert(isToolFailure({ kind: 'tool_result', exitCode: 1, text: '' }), 'detects non-zero exitCode');
-  assert(isToolFailure({ kind: 'tool_result', exitCode: null, text: 'command not found: xyz' }), 'detects error pattern');
+  assert(isToolFailure({ kind: 'tool_result', toolName: 'Bash', exitCode: null, text: 'command not found: xyz' }, balancedConfig), 'balanced: detects error pattern on Bash');
   assert(!isToolFailure({ kind: 'tool_result', exitCode: 0, text: 'success' }), 'ignores successful result');
   assert(!isToolFailure({ kind: 'user', exitCode: 1, text: '' }), 'ignores non-tool events');
+
+  // Test 7b: v1.4.0 Tiered Failure Detection
+  console.log('\nTiered Failure Detection (v1.4.0):');
+  {
+    const strictConfig = { mode: 'strict' };
+    const heuristicConfig = { mode: 'heuristic', minBroadMatches: 2 };
+
+    // False positive prevention - Read tool with "error" text
+    const readWithError = { kind: 'tool_result', toolName: 'Read', exitCode: 0, text: '// Error handling\nclass ValidationError {}' };
+    assert(!isToolFailureV2(readWithError, strictConfig), 'strict: Read with error text NOT failure (exitCode=0)');
+    assert(!isToolFailureV2(readWithError, balancedConfig), 'balanced: Read denylisted from regex');
+
+    // Real failure detection - exitCode takes priority
+    const bashFail = { kind: 'tool_result', toolName: 'Bash', exitCode: 1, text: 'some output' };
+    assert(isToolFailureV2(bashFail, strictConfig), 'strict: exitCode=1 IS failure');
+
+    // exitCode check is robust regardless of kind
+    const unknownKindFail = { kind: 'unknown', exitCode: 127, text: 'command not found' };
+    assert(isToolFailureV2(unknownKindFail, strictConfig), 'strict: exitCode != 0 detected regardless of kind');
+
+    // Strict mode - no regex fallback
+    const bashCmdNotFound = { kind: 'tool_result', toolName: 'Bash', exitCode: null, text: 'command not found: xyz' };
+    assert(!isToolFailureV2(bashCmdNotFound, strictConfig), 'strict: no regex fallback');
+    assert(isToolFailureV2(bashCmdNotFound, balancedConfig), 'balanced: fatal pattern on Bash');
+
+    // Heuristic mode - broad patterns with threshold
+    const singleBroad = { kind: 'tool_result', toolName: 'Bash', exitCode: null, text: 'Output too large saved to file' };
+    const doubleBroad = { kind: 'tool_result', toolName: 'Bash', exitCode: null, text: 'Output too large saved to file\nfailed to compile' };
+    assert(!isToolFailureV2(singleBroad, heuristicConfig), 'heuristic: 1 broad match < threshold');
+    assert(isToolFailureV2(doubleBroad, heuristicConfig), 'heuristic: 2 broad matches >= threshold');
+  }
+
+  // Test 7c: Run Scope Detection (v1.4.0)
+  console.log('\nRun Scope Detection (v1.4.0):');
+  {
+    // Full flags trigger 'full' scope
+    assert(determineRunScope({ full: true }, {}) === 'full', '--full => full scope');
+    assert(determineRunScope({ reindex: true }, {}) === 'full', '--reindex => full scope');
+    assert(determineRunScope({ clear: true }, {}) === 'full', '--clear => full scope');
+
+    // Substantial scope when >= threshold new sessions
+    const substantialStats = { sessionsWrittenByMode: { full: 10, cached: 5, fast: 0 } };
+    assert(determineRunScope({}, substantialStats) === 'substantial', '10 new sessions => substantial');
+
+    // Incremental scope when < threshold new sessions
+    const incrementalStats = { sessionsWrittenByMode: { full: 2, cached: 20, fast: 0 } };
+    assert(determineRunScope({}, incrementalStats) === 'incremental', '2 new sessions => incremental');
+
+    // Custom threshold
+    const customConfig = { incrementalThreshold: 3 };
+    assert(determineRunScope({}, incrementalStats, customConfig) === 'incremental', '2 < threshold 3 => incremental');
+    const stats3 = { sessionsWrittenByMode: { full: 3, cached: 5, fast: 0 } };
+    assert(determineRunScope({}, stats3, customConfig) === 'substantial', '3 >= threshold 3 => substantial');
+  }
 
   // Test 8: Extractor session detection
   console.log('\nExtractor Session Detection:');
@@ -3364,12 +3563,21 @@ async function main() {
       maxEventsPerLog: Math.min(config.maxEventsPerLog, maxEventsPerSession)
     };
 
+    // v1.4.0: Initialize failure detection config (defaults to strict mode)
+    const detectionConfig = {
+      mode: 'strict',
+      ...(config.failureDetection || {})
+    };
+
     // Process each log
     const sessions = [];
     const stats = {
+      // v1.4.0: Enhanced discovery/processing counters
+      logsDiscovered: allLogs.length,
+      logsSkippedIncremental: allLogs.length - logsToProcess.length,  // Renamed from 'unchanged'
+
       skipped: {
         extractorSessions: 0,
-        unchanged: allLogs.length - logsToProcess.length,
         fastPathSkipped: 0  // v1.1.0: Sessions skipped by fast-path mode
       },
       // v1.2.0: Index tracking
@@ -3379,7 +3587,10 @@ async function main() {
       logsAttempted: 0,
       logsSucceeded: 0,
       logsFailed: 0,
-      processingErrors: []
+      processingErrors: [],
+
+      // v1.4.0: Mode breakdown for written sessions
+      sessionsWrittenByMode: { full: 0, cached: 0, fast: 0 }
     };
 
     for (const logFile of logsToProcess) {
@@ -3397,6 +3608,7 @@ async function main() {
             // Index hit: use cached session
             const cachedSession = buildCachedSession(indexResult.entry, fileStats);
             sessions.push(cachedSession);
+            stats.sessionsWrittenByMode.cached++;  // v1.4.0
             stats.indexHits++;
             stats.logsSucceeded++;
             log('verbose', `  Index hit: reusing cached metadata`);
@@ -3429,6 +3641,7 @@ async function main() {
               kindsCount: {}
             };
             sessions.push(fastSession);
+            stats.sessionsWrittenByMode.fast++;  // v1.4.0
 
             // v1.2.0: Write lightweight index entry for fast-path
             writeIndexEntry(cursor, normalizedPath, fastSession, fileStats, 'fast', indexConfig.preserveUserFields);
@@ -3441,7 +3654,7 @@ async function main() {
           log('verbose', `  Fast-path: needs full processing (${fastResult.reason})`);
         }
 
-        const result = await processLogFile(logFile.path, processConfig, compiledRedactions);
+        const result = await processLogFile(logFile.path, processConfig, compiledRedactions, detectionConfig);
 
         // Skip extractor sessions
         if (result.isExtractorSession && (config.skipExtractorSessions ?? DEFAULTS.skipExtractorSessions)) {
@@ -3459,6 +3672,7 @@ async function main() {
           fromIndex: false
         };
         sessions.push(fullSession);
+        stats.sessionsWrittenByMode.full++;  // v1.4.0
 
         // v1.2.0: Write index entry for fully processed session
         writeIndexEntry(cursor, normalizedPath, result, fileStats, 'full', indexConfig.preserveUserFields);
@@ -3472,8 +3686,8 @@ async function main() {
       }
     }
 
-    // Generate output
-    const output = generateOutput(sessions, stats, config);
+    // Generate output (v1.4.0: pass opts for runScope detection)
+    const output = generateOutput(sessions, stats, config, opts);
 
     // v1.1.0: Audit mode - print stats to stdout and exit (no file writes)
     if (opts.audit) {
@@ -3572,35 +3786,36 @@ async function main() {
       }
     }
 
-    // Summary
+    // Summary (v1.4.0: Enhanced reporting)
     log('info', `Processing summary:`);
-    log('info', `  Logs found: ${allLogs.length}`);
-    log('info', `  Logs attempted: ${stats.logsAttempted}`);
-    log('info', `  Logs succeeded: ${stats.logsSucceeded}`);
+    log('info', `  Logs discovered:       ${stats.logsDiscovered}`);
+    if (stats.logsSkippedIncremental > 0) {
+      log('info', `  Skipped unchanged:     ${stats.logsSkippedIncremental}  (incremental cursor)`);
+    }
+    log('info', `  Logs attempted:        ${stats.logsAttempted}`);
+    log('info', `  Logs succeeded:        ${stats.logsSucceeded}`);
     if (stats.logsFailed > 0) {
-      log('warn', `  Logs failed: ${stats.logsFailed}`);
-    }
-    log('info', `  Sessions written: ${sessions.length}`);
-    log('info', `  Total events: ${output.summary.totalEvents}`);
-    log('info', `  Sampled events: ${output.summary.sampledEvents}`);
-    log('info', `  Tool failures detected: ${output.summary.toolFailures}`);
-    if (stats.skipped.extractorSessions > 0) {
-      log('info', `  Skipped extractor sessions: ${stats.skipped.extractorSessions}`);
-    }
-    if (stats.skipped.fastPathSkipped > 0) {
-      log('info', `  Fast-path skipped: ${stats.skipped.fastPathSkipped}`);
+      log('warn', `  Logs failed:           ${stats.logsFailed}`);
     }
     // v1.2.0: Index stats
     if (stats.indexHits > 0 || stats.indexMisses > 0) {
-      const hitRate = stats.indexHits + stats.indexMisses > 0
-        ? ((stats.indexHits / (stats.indexHits + stats.indexMisses)) * 100).toFixed(1)
-        : 0;
-      log('info', `  Index hits: ${stats.indexHits}, misses: ${stats.indexMisses} (${hitRate}% hit rate)`);
+      log('info', `  Index hits:            ${stats.indexHits}   Misses: ${stats.indexMisses}`);
+    }
+    // v1.4.0: Mode breakdown
+    const { full, cached, fast } = stats.sessionsWrittenByMode;
+    log('info', `  Sessions written:      ${sessions.length}  (full: ${full}, cached: ${cached}, fast: ${fast})`);
+    log('info', `  Total events:          ${output.summary.totalEvents}`);
+    log('info', `  Sampled events:        ${output.summary.sampledEvents}`);
+    log('info', `  Tool failures:         ${output.summary.toolFailures}`);
+    if (stats.skipped.extractorSessions > 0) {
+      log('info', `  Skipped extractor:     ${stats.skipped.extractorSessions}`);
     }
     if (indexPruned.pruned > 0) {
-      log('info', `  Index pruned: ${indexPruned.pruned} old entries removed`);
+      log('info', `  Index pruned:          ${indexPruned.pruned} old entries removed`);
     }
-    log('info', `  Cursor written: ${cursorWritten ? 'Yes' : 'No'}`)
+    log('info', `  Cursor written:        ${cursorWritten ? 'Yes' : 'No'}`);
+    // v1.4.0: Run scope for lesson generation
+    log('info', `  Run scope:             ${output.summary.runScope}  (${output.summary.runScopeReason})`);
 
   } catch (err) {
     log('error', err.message);

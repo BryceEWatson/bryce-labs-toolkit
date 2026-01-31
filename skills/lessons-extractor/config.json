@@ -46,6 +46,14 @@
       "maxAgeDays": 30,
       "pruneStrategy": "hybrid",
       "preserveUserFields": true
+    },
+
+    "failureDetection": {
+      "mode": "strict"
+    },
+
+    "scopeDetection": {
+      "incrementalThreshold": 5
     }
   }
 }
