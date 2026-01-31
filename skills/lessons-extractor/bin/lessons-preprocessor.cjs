@@ -1717,6 +1717,9 @@ function writeIndexEntry(cursor, filePath, sessionResult, fileStats, mode, prese
     kindsCount: sessionResult.kindsCount || {},
     hasImportanceMarkers: sessionResult.hasImportanceMarkers ?? null,
     hasToolFailures: sessionResult.hasToolFailures ?? (sessionResult.toolFailures?.length ? true : false),
+    // v1.2.0: Store counts for accurate summary stats on cached sessions
+    totalEvents: sessionResult.totalEvents || Object.values(sessionResult.kindsCount || {}).reduce((a, b) => a + b, 0),
+    toolFailuresCount: sessionResult.toolFailures?.length || 0,
     windowing: sessionResult.windowing || null,
     mode,
     lastIndexedAt: new Date().toISOString(),
@@ -1920,8 +1923,11 @@ function buildCachedSession(indexEntry, fileStats) {
     events: null,
     evidence: null,
     toolFailures: null,
-    eventCount: null,
-    sampledEventCount: 0
+    // v1.2.0: Preserve counts from index for accurate summary stats
+    totalEvents: indexEntry.totalEvents || 0,
+    eventCount: indexEntry.totalEvents || null,
+    sampledEventCount: 0,
+    toolFailuresCount: indexEntry.toolFailuresCount || 0
   };
 }
 
@@ -1994,7 +2000,8 @@ function generateOutput(sessions, stats, config) {
       logsProcessed: sessions.length,
       totalEvents: sessions.reduce((sum, s) => sum + (s.totalEvents || 0), 0),
       sampledEvents: sessions.reduce((sum, s) => sum + (s.events?.length || 0), 0),
-      toolFailures: sessions.reduce((sum, s) => sum + (s.toolFailures?.length || 0), 0),
+      // v1.2.0: Use toolFailuresCount for cached sessions where toolFailures array is null
+      toolFailures: sessions.reduce((sum, s) => sum + (s.toolFailures?.length ?? s.toolFailuresCount ?? 0), 0),
       skipped: stats.skipped,
       // v1.1.0: Tool counters and project grouping
       toolStats: {
@@ -2928,9 +2935,12 @@ async function runSelfTest() {
       firstAssistantText: 'First assistant response',
       toolNames: ['Read', 'Edit'],
       kindsCount: { user: 2, assistant: 2 },
-      hasToolFailures: false,
+      hasToolFailures: true,
       hasImportanceMarkers: true,
-      windowing: { overlapped: true }
+      windowing: { overlapped: true },
+      // v1.2.0: Counts for summary stats
+      totalEvents: 105,
+      toolFailuresCount: 3
     };
     const session = buildCachedSession(indexEntry, { mtimeMs: 1000 });
     assert(session.fromIndex === true, 'marked as from index');
@@ -2941,6 +2951,9 @@ async function runSelfTest() {
     assert(session.taskPreview === 'Test task', 'derived fields populated');
     assert(session.toolNames.length === 2, 'toolNames from index');
     assert(session.sessionId === 'abc123', 'sessionId from index');
+    // v1.2.0: Verify counts preserved for summary
+    assert(session.totalEvents === 105, 'totalEvents preserved from index');
+    assert(session.toolFailuresCount === 3, 'toolFailuresCount preserved from index');
   }
 
   // Test: INDEX_DEFAULTS
