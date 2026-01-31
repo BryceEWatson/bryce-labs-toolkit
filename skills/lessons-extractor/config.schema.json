@@ -189,6 +189,38 @@
           },
           "additionalProperties": false
         },
+        "indexing": {
+          "type": "object",
+          "description": "Cursor index configuration for caching derived metadata (v1.2.0)",
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "description": "Maximum entries in cursor index",
+              "default": 500,
+              "minimum": 50,
+              "maximum": 5000
+            },
+            "maxAgeDays": {
+              "type": "integer",
+              "description": "Prune entries older than N days (0=disabled)",
+              "default": 30,
+              "minimum": 0,
+              "maximum": 365
+            },
+            "pruneStrategy": {
+              "type": "string",
+              "description": "Pruning strategy: lru, age, or hybrid",
+              "enum": ["lru", "age", "hybrid"],
+              "default": "hybrid"
+            },
+            "preserveUserFields": {
+              "type": "boolean",
+              "description": "Preserve user tags/notes when updating entries",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        },
         "maxBytesPerLog": {
           "type": "integer",
           "description": "DEPRECATED: Use windowing.headBytes + windowing.tailBytes instead",

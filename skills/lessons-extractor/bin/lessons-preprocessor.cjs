@@ -73,6 +73,14 @@ const DEFAULTS = {
   errorWindowEvents: 5         // DEPRECATED: use sampling.errorWindowEvents
 };
 
+// Index configuration defaults (v1.2.0: cursor index for metadata caching)
+const INDEX_DEFAULTS = {
+  maxEntries: 500,           // Maximum entries in cursor index
+  maxAgeDays: 30,            // Prune entries older than N days (0=disabled)
+  pruneStrategy: 'hybrid',   // 'lru', 'age', or 'hybrid'
+  preserveUserFields: true   // Preserve user tags/notes when updating entries
+};
+
 /**
  * Compute stable SHA-256 hash of raw JSONL line for deduplication
  * @param {string} rawLine - The raw JSONL line string
@@ -1507,12 +1515,54 @@ async function processLogFile(filePath, config, compiledRedactions) {
 // ============================================================================
 
 /**
+ * Migrate cursor from schema v1 to v2
+ * @param {object} cursorV1 - V1 cursor object
+ * @returns {object} V2 cursor with empty index
+ */
+function migrateCursorV1toV2(cursorV1) {
+  return {
+    schemaVersion: 2,
+    lastRunAt: cursorV1.lastRunAt || new Date().toISOString(),
+    lastMtimeCutoffMs: cursorV1.lastMtimeCutoffMs || 0,
+    recentFiles: cursorV1.recentFiles || [],
+    index: {},
+    indexStats: {
+      entryCount: 0,
+      oldestEntryAt: null,
+      newestEntryAt: null,
+      lastPrunedAt: null
+    }
+  };
+}
+
+/**
  * Read cursor file for incremental processing
+ * Auto-migrates v1 cursors to v2
  */
 function readCursor(cursorPath) {
   try {
     if (!fs.existsSync(cursorPath)) return null;
     const data = JSON.parse(fs.readFileSync(cursorPath, 'utf-8'));
+
+    // Auto-migrate v1 to v2
+    if (!data.schemaVersion || data.schemaVersion === 1) {
+      log('verbose', 'Migrating cursor from v1 to v2');
+      return migrateCursorV1toV2(data);
+    }
+
+    // Ensure index and indexStats exist for v2
+    if (data.schemaVersion === 2) {
+      if (!data.index) data.index = {};
+      if (!data.indexStats) {
+        data.indexStats = {
+          entryCount: Object.keys(data.index).length,
+          oldestEntryAt: null,
+          newestEntryAt: null,
+          lastPrunedAt: null
+        };
+      }
+    }
+
     return data;
   } catch (err) {
     log('warn', `Could not read cursor file: ${err.message}`);
@@ -1605,6 +1655,282 @@ function shouldWriteCursor(stats, sessionsWritten, logsFound) {
   return { write: true, reason: 'Run succeeded' };
 }
 
+/**
+ * Read and validate index entry for a session file
+ * @param {object} cursor - Loaded cursor object (may be null)
+ * @param {string} filePath - Normalized file path (redacted)
+ * @param {object} fileStats - { mtimeMs, size } from fs.statSync
+ * @returns {{ valid: boolean, entry: object|null, reason: string }}
+ */
+function readIndexEntry(cursor, filePath, fileStats) {
+  if (!cursor || !cursor.index) {
+    return { valid: false, entry: null, reason: 'miss_no_cursor' };
+  }
+
+  const entry = cursor.index[filePath];
+  if (!entry) {
+    return { valid: false, entry: null, reason: 'miss_not_found' };
+  }
+
+  // Validate mtime
+  if (entry.mtimeMs !== fileStats.mtimeMs) {
+    return { valid: false, entry, reason: 'stale_mtime' };
+  }
+
+  // Validate size
+  if (entry.sizeBytes !== fileStats.size) {
+    return { valid: false, entry, reason: 'stale_size' };
+  }
+
+  return { valid: true, entry, reason: 'hit' };
+}
+
+/**
+ * Update index with derived session metadata
+ * Preserves user fields (tags, notes) if present
+ * @param {object} cursor - Cursor object to mutate
+ * @param {string} filePath - Normalized file path
+ * @param {object} sessionResult - Result from processLogFile() or fastPathScan()
+ * @param {object} fileStats - { mtimeMs, size } from fs.statSync
+ * @param {string} mode - "full" | "fast" | "cached"
+ * @param {boolean} preserveUserFields - Whether to preserve tags/notes
+ */
+function writeIndexEntry(cursor, filePath, sessionResult, fileStats, mode, preserveUserFields = true) {
+  if (!cursor.index) cursor.index = {};
+
+  const existing = cursor.index[filePath] || {};
+
+  // Extract project key from path
+  const projectKeyMatch = filePath.match(/projects[/\\]([^/\\]+)[/\\]/);
+  const projectKey = projectKeyMatch ? projectKeyMatch[1] : null;
+
+  cursor.index[filePath] = {
+    path: filePath,
+    mtimeMs: fileStats.mtimeMs,
+    sizeBytes: fileStats.size,
+    sessionId: sessionResult.sessionId || path.basename(filePath, '.jsonl'),
+    projectKey,
+    taskPreview: sessionResult.taskPreview || null,
+    firstUserText: sessionResult.firstUserText || null,
+    firstAssistantText: sessionResult.firstAssistantText || null,
+    toolNames: sessionResult.toolNames || [],
+    kindsCount: sessionResult.kindsCount || {},
+    hasImportanceMarkers: sessionResult.hasImportanceMarkers ?? null,
+    hasToolFailures: sessionResult.hasToolFailures ?? (sessionResult.toolFailures?.length ? true : false),
+    // v1.2.0: Store counts for accurate summary stats on cached sessions
+    totalEvents: sessionResult.totalEvents || Object.values(sessionResult.kindsCount || {}).reduce((a, b) => a + b, 0),
+    toolFailuresCount: sessionResult.toolFailures?.length || 0,
+    windowing: sessionResult.windowing || null,
+    mode,
+    lastIndexedAt: new Date().toISOString(),
+    // Preserve user fields
+    tags: preserveUserFields ? (existing.tags || []) : [],
+    notes: preserveUserFields ? (existing.notes || '') : ''
+  };
+}
+
+/**
+ * Prune index to bounded size using configured strategy
+ * Never prunes entries with user annotations (tags/notes)
+ * @param {object} cursor - Cursor object to mutate
+ * @param {object} config - { maxEntries, maxAgeDays, pruneStrategy }
+ * @returns {{ pruned: number, remaining: number }}
+ */
+function pruneIndex(cursor, config = {}) {
+  const maxEntries = config.maxEntries ?? INDEX_DEFAULTS.maxEntries;
+  const maxAgeDays = config.maxAgeDays ?? INDEX_DEFAULTS.maxAgeDays;
+  const strategy = config.pruneStrategy ?? INDEX_DEFAULTS.pruneStrategy;
+
+  if (!cursor.index) {
+    return { pruned: 0, remaining: 0 };
+  }
+
+  const entries = Object.entries(cursor.index);
+  const initialCount = entries.length;
+
+  // Target 80% of max when pruning to avoid pruning on every run
+  const targetCount = Math.floor(maxEntries * 0.8);
+
+  // Skip if under target
+  if (initialCount <= targetCount) {
+    return { pruned: 0, remaining: initialCount };
+  }
+
+  const now = Date.now();
+  const ageCutoffMs = maxAgeDays > 0 ? now - (maxAgeDays * 24 * 60 * 60 * 1000) : 0;
+
+  // Sort by lastIndexedAt descending (most recent first)
+  entries.sort((a, b) => {
+    const aTime = new Date(a[1].lastIndexedAt || 0).getTime();
+    const bTime = new Date(b[1].lastIndexedAt || 0).getTime();
+    return bTime - aTime;
+  });
+
+  const newIndex = {};
+  let kept = 0;
+
+  for (const [key, entry] of entries) {
+    const entryTime = new Date(entry.lastIndexedAt || 0).getTime();
+    const hasUserAnnotations = (entry.tags?.length > 0) || (entry.notes?.length > 0);
+    const isRecent = ageCutoffMs === 0 || entryTime >= ageCutoffMs;
+
+    // Keep rules (priority order):
+    // 1. Always keep entries with user annotations
+    // 2. For hybrid/lru: keep up to targetCount recent entries
+    // 3. For age: keep all entries within maxAgeDays
+    let shouldKeep = false;
+
+    if (hasUserAnnotations) {
+      shouldKeep = true;
+    } else if (strategy === 'age') {
+      shouldKeep = isRecent;
+    } else if (strategy === 'lru' || strategy === 'hybrid') {
+      // Hybrid: age-filter first (if configured), then LRU
+      if (strategy === 'hybrid' && maxAgeDays > 0 && !isRecent) {
+        shouldKeep = false;
+      } else {
+        shouldKeep = kept < targetCount;
+      }
+    }
+
+    if (shouldKeep) {
+      newIndex[key] = entry;
+      kept++;
+    }
+  }
+
+  cursor.index = newIndex;
+  cursor.indexStats = cursor.indexStats || {};
+  cursor.indexStats.entryCount = kept;
+  cursor.indexStats.lastPrunedAt = new Date().toISOString();
+
+  // Update oldest/newest entry times
+  const times = Object.values(newIndex).map(e => new Date(e.lastIndexedAt || 0).getTime()).filter(t => t > 0);
+  if (times.length > 0) {
+    cursor.indexStats.oldestEntryAt = new Date(Math.min(...times)).toISOString();
+    cursor.indexStats.newestEntryAt = new Date(Math.max(...times)).toISOString();
+  }
+
+  return { pruned: initialCount - kept, remaining: kept };
+}
+
+/**
+ * Serialize cursor with deterministic key ordering
+ * @param {object} cursor - Cursor object
+ * @returns {string} JSON string with sorted keys
+ */
+function serializeCursorDeterministic(cursor) {
+  // Sort index keys alphabetically
+  if (cursor.index) {
+    const sortedIndex = {};
+    for (const key of Object.keys(cursor.index).sort()) {
+      sortedIndex[key] = cursor.index[key];
+    }
+    cursor.index = sortedIndex;
+  }
+
+  // Sort recentFiles by path for consistency
+  if (cursor.recentFiles) {
+    cursor.recentFiles.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  return JSON.stringify(cursor, null, 2) + '\n';
+}
+
+/**
+ * Write cursor file with atomic semantics (Windows-safe)
+ * Uses .bak pattern for crash recovery
+ * @param {string} cursorPath - Path to cursor file
+ * @param {object} cursor - Cursor object to write
+ */
+function atomicWriteCursor(cursorPath, cursor) {
+  const tmpPath = cursorPath + '.tmp';
+  const bakPath = cursorPath + '.bak';
+
+  const content = serializeCursorDeterministic(cursor);
+
+  try {
+    // Step 1: Write to temp file
+    fs.writeFileSync(tmpPath, content);
+
+    // Step 2: Backup existing (if exists)
+    if (fs.existsSync(cursorPath)) {
+      try {
+        fs.renameSync(cursorPath, bakPath);
+      } catch (backupErr) {
+        // If backup fails, try direct delete
+        fs.unlinkSync(cursorPath);
+      }
+    }
+
+    // Step 3: Rename temp to target
+    fs.renameSync(tmpPath, cursorPath);
+
+    // Step 4: Clean up backup
+    if (fs.existsSync(bakPath)) {
+      try {
+        fs.unlinkSync(bakPath);
+      } catch (cleanupErr) {
+        // Non-fatal: backup remains but cursor is valid
+      }
+    }
+  } catch (err) {
+    // Attempt recovery: restore backup if exists
+    if (fs.existsSync(bakPath) && !fs.existsSync(cursorPath)) {
+      try {
+        fs.renameSync(bakPath, cursorPath);
+      } catch (restoreErr) {
+        // Recovery failed
+      }
+    }
+    // Clean up temp if it exists
+    if (fs.existsSync(tmpPath)) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch (tmpCleanupErr) {
+        // Non-fatal
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Build a lightweight session object from an index entry (for cache hits)
+ * @param {object} indexEntry - Index entry with cached metadata
+ * @param {object} fileStats - { mtimeMs } for mtime field
+ * @returns {object} Session object suitable for preprocessed.json
+ */
+function buildCachedSession(indexEntry, fileStats) {
+  return {
+    sessionId: indexEntry.sessionId,
+    logPath: indexEntry.path,
+    mtime: new Date(fileStats.mtimeMs).toISOString(),
+    mode: 'cached',
+    fromIndex: true,
+
+    // Derived fields from index
+    taskPreview: indexEntry.taskPreview,
+    firstUserText: indexEntry.firstUserText,
+    firstAssistantText: indexEntry.firstAssistantText,
+    toolNames: indexEntry.toolNames || [],
+    kindsCount: indexEntry.kindsCount || {},
+    hasToolFailures: indexEntry.hasToolFailures || false,
+    hasImportanceMarkers: indexEntry.hasImportanceMarkers || false,
+    windowing: indexEntry.windowing,
+
+    // Null for cached sessions (the speed win)
+    events: null,
+    evidence: null,
+    toolFailures: null,
+    // v1.2.0: Preserve counts from index for accurate summary stats
+    totalEvents: indexEntry.totalEvents || 0,
+    eventCount: indexEntry.totalEvents || null,
+    sampledEventCount: 0,
+    toolFailuresCount: indexEntry.toolFailuresCount || 0
+  };
+}
+
 // ============================================================================
 // Output Generation
 // ============================================================================
@@ -1672,9 +1998,10 @@ function generateOutput(sessions, stats, config) {
     },
     summary: {
       logsProcessed: sessions.length,
-      totalEvents: sessions.reduce((sum, s) => sum + s.totalEvents, 0),
-      sampledEvents: sessions.reduce((sum, s) => sum + s.events.length, 0),
-      toolFailures: sessions.reduce((sum, s) => sum + s.toolFailures.length, 0),
+      totalEvents: sessions.reduce((sum, s) => sum + (s.totalEvents || 0), 0),
+      sampledEvents: sessions.reduce((sum, s) => sum + (s.events?.length || 0), 0),
+      // v1.2.0: Use toolFailuresCount for cached sessions where toolFailures array is null
+      toolFailures: sessions.reduce((sum, s) => sum + (s.toolFailures?.length ?? s.toolFailuresCount ?? 0), 0),
       skipped: stats.skipped,
       // v1.1.0: Tool counters and project grouping
       toolStats: {
@@ -1688,11 +2015,14 @@ function generateOutput(sessions, stats, config) {
       sessionId: s.sessionId,
       logPath: s.logPath,
       mtime: s.mtime,
-      eventCount: s.totalEvents,
-      sampledEventCount: s.events.length,
+      eventCount: s.totalEvents || s.eventCount || 0,
+      sampledEventCount: s.events?.length || s.sampledEventCount || 0,
       events: s.events,
       toolFailures: s.toolFailures,
       evidence: s.evidence,
+      // v1.2.0: Index-related fields
+      mode: s.mode,
+      fromIndex: s.fromIndex,
       // v1.1.0: New derived fields
       windowing: s.windowing,
       taskPreview: s.taskPreview,
@@ -1727,7 +2057,11 @@ function parseArgs(argv) {
     fast: false,       // Fast-path mode: only deep-process sessions with failures/markers
     fullDetail: false, // Force full processing for all sessions (default behavior)
     audit: false,      // Print tool/event statistics to stdout, skip file output
-    auditFormat: 'json' // Format for audit output: json or text
+    auditFormat: 'json', // Format for audit output: json or text
+    // v1.2.0: Index flags
+    reindex: false,    // Force refresh index for all processed logs
+    indexMax: null,    // Override max index entries
+    indexDays: null    // Override max age days
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -1793,6 +2127,24 @@ function parseArgs(argv) {
         }
         opts.auditFormat = fmt;
         break;
+      // v1.2.0: Index flags
+      case '--reindex':
+        opts.reindex = true;
+        break;
+      case '--index-max':
+        const maxVal = parseInt(args[++i], 10);
+        if (isNaN(maxVal) || maxVal < 50) {
+          throw new Error('--index-max requires a number >= 50');
+        }
+        opts.indexMax = maxVal;
+        break;
+      case '--index-days':
+        const daysVal = parseInt(args[++i], 10);
+        if (isNaN(daysVal) || daysVal < 0) {
+          throw new Error('--index-days requires a non-negative number');
+        }
+        opts.indexDays = daysVal;
+        break;
       default:
         if (arg.startsWith('-')) {
           throw new Error(`Unknown option: ${arg}`);
@@ -1841,6 +2193,15 @@ OPTIONS:
   --audit              Print tool/event statistics to stdout, skip file output
 
   --audit-format <fmt> Format for audit output: json (default) or text
+
+INDEX OPTIONS (v1.2.0):
+  --reindex            Force refresh index for all processed logs
+                       (updates derived metadata but preserves user tags/notes)
+
+  --index-max <n>      Maximum index entries (default: ${INDEX_DEFAULTS.maxEntries}, min: 50)
+
+  --index-days <n>     Prune entries not accessed within N days
+                       (default: ${INDEX_DEFAULTS.maxAgeDays}, 0=disabled)
 
   --self-test          Run built-in tests
 
@@ -1989,7 +2350,8 @@ async function runSelfTest() {
   ];
   writeCursor(tempCursor, testFiles, 10);
   const cursor = readCursor(tempCursor);
-  assert(cursor && cursor.schemaVersion === 1, 'writes and reads cursor');
+  // v1.2.0: readCursor auto-migrates v1 to v2, so check for v2
+  assert(cursor && cursor.schemaVersion === 2, 'writes and reads cursor (auto-migrates to v2)');
   assert(cursor.recentFiles.length === 2, 'stores recent files');
   fs.unlinkSync(tempCursor);
 
@@ -2439,6 +2801,168 @@ async function runSelfTest() {
     // Test null/empty handling
     assert(redactPath(null) === null, 'null returns null');
     assert(redactPath('') === '', 'empty string returns empty');
+
+    // v1.2.0: Index keying collision sanity check
+    // Verify that different paths don't collide when used as index keys
+    const path1 = path.join(homeDir, '.claude', 'projects', 'repo-a', 'session1.jsonl');
+    const path2 = path.join(homeDir, '.claude', 'projects', 'repo-b', 'session1.jsonl');
+    const key1 = redactPath(path1);
+    const key2 = redactPath(path2);
+    assert(key1 !== key2, 'different paths produce different index keys');
+    assert(key1.includes('repo-a'), 'path components preserved in key');
+    assert(key2.includes('repo-b'), 'path components preserved in key');
+  }
+
+  // v1.2.0: Cursor Index Tests
+
+  // Test: Cursor v1 to v2 Migration
+  console.log('\nCursor Migration v1→v2 (v1.2.0):');
+  {
+    const v1 = {
+      schemaVersion: 1,
+      lastRunAt: '2026-01-20T10:00:00Z',
+      lastMtimeCutoffMs: 1705750800000,
+      recentFiles: [{ path: '/test/a.jsonl', mtimeMs: 1000, sizeBytes: 100 }]
+    };
+    const v2 = migrateCursorV1toV2(v1);
+    assert(v2.schemaVersion === 2, 'upgrades schemaVersion');
+    assert(v2.lastRunAt === v1.lastRunAt, 'preserves lastRunAt');
+    assert(v2.recentFiles.length === 1, 'preserves recentFiles');
+    assert(typeof v2.index === 'object', 'creates index object');
+    assert(v2.indexStats !== undefined, 'creates indexStats');
+    assert(v2.indexStats.entryCount === 0, 'indexStats.entryCount starts at 0');
+  }
+
+  // Test: Index Entry Validation
+  console.log('\nIndex Entry Reuse (v1.2.0):');
+  {
+    const cursor = {
+      schemaVersion: 2,
+      index: {
+        '~/test.jsonl': { mtimeMs: 1000, sizeBytes: 500, taskPreview: 'test' }
+      }
+    };
+    const validResult = readIndexEntry(cursor, '~/test.jsonl', { mtimeMs: 1000, size: 500 });
+    assert(validResult.valid === true, 'validates matching entry');
+    assert(validResult.reason === 'hit', 'reports hit reason');
+
+    const staleMtime = readIndexEntry(cursor, '~/test.jsonl', { mtimeMs: 2000, size: 500 });
+    assert(staleMtime.valid === false, 'rejects stale mtime');
+    assert(staleMtime.reason === 'stale_mtime', 'reports stale_mtime reason');
+
+    const staleSize = readIndexEntry(cursor, '~/test.jsonl', { mtimeMs: 1000, size: 600 });
+    assert(staleSize.valid === false, 'rejects stale size');
+    assert(staleSize.reason === 'stale_size', 'reports stale_size reason');
+
+    const missing = readIndexEntry(cursor, '~/other.jsonl', { mtimeMs: 1000, size: 500 });
+    assert(missing.valid === false, 'rejects missing entry');
+    assert(missing.reason === 'miss_not_found', 'reports miss_not_found reason');
+
+    const noCursor = readIndexEntry(null, '~/test.jsonl', { mtimeMs: 1000, size: 500 });
+    assert(noCursor.valid === false, 'rejects null cursor');
+  }
+
+  // Test: User Fields Preservation
+  console.log('\nUser Fields Preservation (v1.2.0):');
+  {
+    const cursor = {
+      schemaVersion: 2,
+      index: { '~/test.jsonl': { tags: ['important'], notes: 'Keep this' } }
+    };
+    writeIndexEntry(cursor, '~/test.jsonl', { taskPreview: 'new', sessionId: 'abc123' }, { mtimeMs: 2000, size: 200 }, 'full', true);
+    assert(cursor.index['~/test.jsonl'].taskPreview === 'new', 'updates derived fields');
+    assert(cursor.index['~/test.jsonl'].tags[0] === 'important', 'preserves tags');
+    assert(cursor.index['~/test.jsonl'].notes === 'Keep this', 'preserves notes');
+
+    // Test with preserveUserFields = false
+    const cursor2 = {
+      schemaVersion: 2,
+      index: { '~/test2.jsonl': { tags: ['old'], notes: 'Old note' } }
+    };
+    writeIndexEntry(cursor2, '~/test2.jsonl', { taskPreview: 'new2' }, { mtimeMs: 3000, size: 300 }, 'full', false);
+    assert(cursor2.index['~/test2.jsonl'].tags.length === 0, 'clears tags when preserveUserFields=false');
+    assert(cursor2.index['~/test2.jsonl'].notes === '', 'clears notes when preserveUserFields=false');
+  }
+
+  // Test: Index Pruning
+  console.log('\nIndex Pruning (v1.2.0):');
+  {
+    const cursor = { schemaVersion: 2, index: {}, indexStats: {} };
+    for (let i = 0; i < 10; i++) {
+      cursor.index[`~/file${i}.jsonl`] = { mtimeMs: i * 1000, lastIndexedAt: new Date(i * 10000).toISOString() };
+    }
+    const result = pruneIndex(cursor, { maxEntries: 5, pruneStrategy: 'lru' });
+    assert(result.remaining === 4, 'prunes to 80% of maxEntries (4)');
+    assert(cursor.index['~/file9.jsonl'] !== undefined, 'keeps most recent');
+    assert(cursor.index['~/file0.jsonl'] === undefined, 'removes oldest');
+    assert(cursor.indexStats.lastPrunedAt !== null, 'updates lastPrunedAt');
+
+    // Test that entries with tags are not pruned
+    const cursor2 = { schemaVersion: 2, index: {}, indexStats: {} };
+    for (let i = 0; i < 10; i++) {
+      cursor2.index[`~/file${i}.jsonl`] = {
+        mtimeMs: i * 1000,
+        lastIndexedAt: new Date(i * 10000).toISOString(),
+        tags: i === 0 ? ['important'] : [],
+        notes: ''
+      };
+    }
+    const result2 = pruneIndex(cursor2, { maxEntries: 5, pruneStrategy: 'lru' });
+    assert(cursor2.index['~/file0.jsonl'] !== undefined, 'preserves entry with tags even if oldest');
+  }
+
+  // Test: Deterministic Output
+  console.log('\nDeterministic Output (v1.2.0):');
+  {
+    const cursor1 = { schemaVersion: 2, index: { '~/b.jsonl': { mtimeMs: 2000 }, '~/a.jsonl': { mtimeMs: 1000 } } };
+    const cursor2 = { schemaVersion: 2, index: { '~/a.jsonl': { mtimeMs: 1000 }, '~/b.jsonl': { mtimeMs: 2000 } } };
+    const json1 = serializeCursorDeterministic(cursor1);
+    const json2 = serializeCursorDeterministic(cursor2);
+    assert(json1 === json2, 'deterministic regardless of input order');
+    assert(json1.indexOf('~/a.jsonl') < json1.indexOf('~/b.jsonl'), 'sorted alphabetically');
+  }
+
+  // Test: Cached Session Output Format
+  console.log('\nCached Session Format (v1.2.0):');
+  {
+    const indexEntry = {
+      path: '~/test.jsonl',
+      mtimeMs: 1000,
+      sizeBytes: 500,
+      sessionId: 'abc123',
+      taskPreview: 'Test task',
+      firstUserText: 'First user message',
+      firstAssistantText: 'First assistant response',
+      toolNames: ['Read', 'Edit'],
+      kindsCount: { user: 2, assistant: 2 },
+      hasToolFailures: true,
+      hasImportanceMarkers: true,
+      windowing: { overlapped: true },
+      // v1.2.0: Counts for summary stats
+      totalEvents: 105,
+      toolFailuresCount: 3
+    };
+    const session = buildCachedSession(indexEntry, { mtimeMs: 1000 });
+    assert(session.fromIndex === true, 'marked as from index');
+    assert(session.mode === 'cached', 'mode is cached');
+    assert(session.events === null, 'events is null for cached');
+    assert(session.evidence === null, 'evidence is null for cached');
+    assert(session.toolFailures === null, 'toolFailures is null for cached');
+    assert(session.taskPreview === 'Test task', 'derived fields populated');
+    assert(session.toolNames.length === 2, 'toolNames from index');
+    assert(session.sessionId === 'abc123', 'sessionId from index');
+    // v1.2.0: Verify counts preserved for summary
+    assert(session.totalEvents === 105, 'totalEvents preserved from index');
+    assert(session.toolFailuresCount === 3, 'toolFailuresCount preserved from index');
+  }
+
+  // Test: INDEX_DEFAULTS
+  console.log('\nIndex Defaults (v1.2.0):');
+  {
+    assert(INDEX_DEFAULTS.maxEntries === 500, 'default maxEntries is 500');
+    assert(INDEX_DEFAULTS.maxAgeDays === 30, 'default maxAgeDays is 30');
+    assert(INDEX_DEFAULTS.pruneStrategy === 'hybrid', 'default pruneStrategy is hybrid');
+    assert(INDEX_DEFAULTS.preserveUserFields === true, 'default preserveUserFields is true');
   }
 
   // Summary
@@ -2519,15 +3043,38 @@ async function main() {
       outputPath = path.join(repoRoot, opts.output);
     }
 
-    // Load cursor (unless --full)
+    // Load cursor (unless --full, but always load for --reindex to preserve user fields)
     let cursor = null;
-    if (!opts.full) {
-      const cursorPath = opts.cursor || path.join(outputDir, config.cursorFile || DEFAULTS.cursorFile);
+    const cursorPath = opts.cursor || path.join(outputDir, config.cursorFile || DEFAULTS.cursorFile);
+    if (!opts.full || opts.reindex) {
       cursor = readCursor(cursorPath);
       if (cursor) {
-        log('verbose', `Loaded cursor from: ${cursorPath}`);
+        log('verbose', `Loaded cursor from: ${cursorPath} (v${cursor.schemaVersion || 1})`);
+        if (cursor.schemaVersion === 2 && cursor.index) {
+          log('verbose', `  Index entries: ${Object.keys(cursor.index).length}`);
+        }
       }
     }
+
+    // Initialize cursor if needed (for index tracking)
+    if (!cursor) {
+      cursor = {
+        schemaVersion: 2,
+        lastRunAt: null,
+        lastMtimeCutoffMs: 0,
+        recentFiles: [],
+        index: {},
+        indexStats: { entryCount: 0, oldestEntryAt: null, newestEntryAt: null, lastPrunedAt: null }
+      };
+    }
+
+    // Build index config from CLI + config + defaults
+    const indexConfig = {
+      maxEntries: opts.indexMax ?? config.indexing?.maxEntries ?? INDEX_DEFAULTS.maxEntries,
+      maxAgeDays: opts.indexDays ?? config.indexing?.maxAgeDays ?? INDEX_DEFAULTS.maxAgeDays,
+      pruneStrategy: config.indexing?.pruneStrategy ?? INDEX_DEFAULTS.pruneStrategy,
+      preserveUserFields: config.indexing?.preserveUserFields ?? INDEX_DEFAULTS.preserveUserFields
+    };
 
     // Discover logs (v1.1.0: includes discovery scalability options)
     const allLogs = discoverLogs({
@@ -2579,6 +3126,9 @@ async function main() {
         unchanged: allLogs.length - logsToProcess.length,
         fastPathSkipped: 0  // v1.1.0: Sessions skipped by fast-path mode
       },
+      // v1.2.0: Index tracking
+      indexHits: 0,
+      indexMisses: 0,
       // Run-level error tracking for cursor gating
       logsAttempted: 0,
       logsSucceeded: 0,
@@ -2590,15 +3140,36 @@ async function main() {
       log('verbose', `Processing: ${logFile.path}`);
       stats.logsAttempted++;
 
+      const normalizedPath = redactPath(logFile.path);
+      const fileStats = { mtimeMs: logFile.mtimeMs, size: logFile.size };
+
       try {
+        // v1.2.0: Check index for cached entry (unless --full or --reindex)
+        if (!opts.full && !opts.reindex) {
+          const indexResult = readIndexEntry(cursor, normalizedPath, fileStats);
+          if (indexResult.valid) {
+            // Index hit: use cached session
+            const cachedSession = buildCachedSession(indexResult.entry, fileStats);
+            sessions.push(cachedSession);
+            stats.indexHits++;
+            stats.logsSucceeded++;
+            log('verbose', `  Index hit: reusing cached metadata`);
+            continue;
+          }
+          stats.indexMisses++;
+          log('verbose', `  Index ${indexResult.reason}: full processing`);
+        } else {
+          stats.indexMisses++;
+        }
+
         // v1.1.0: Fast-path mode - quick scan to detect if full processing needed
         if (opts.fast && !opts.fullDetail) {
           const fastResult = await fastPathScan(logFile.path);
           if (!fastResult.needsFullProcessing) {
             // Skip deep processing, add minimal session entry
-            sessions.push({
+            const fastSession = {
               sessionId: fastResult.sessionId || path.basename(logFile.path, '.jsonl'),
-              logPath: redactPath(logFile.path),
+              logPath: normalizedPath,
               mtime: logFile.mtime.toISOString(),
               mode: 'fast',
               taskPreview: fastResult.taskPreview,
@@ -2610,7 +3181,12 @@ async function main() {
               toolFailures: [],
               toolNames: [],
               kindsCount: {}
-            });
+            };
+            sessions.push(fastSession);
+
+            // v1.2.0: Write lightweight index entry for fast-path
+            writeIndexEntry(cursor, normalizedPath, fastSession, fileStats, 'fast', indexConfig.preserveUserFields);
+
             stats.skipped.fastPathSkipped++;
             stats.logsSucceeded++;
             log('verbose', `  Fast-path: skipped (no failures/markers)`);
@@ -2629,11 +3205,17 @@ async function main() {
           continue;
         }
 
-        sessions.push({
+        const fullSession = {
           ...result,
-          logPath: redactPath(logFile.path),
-          mtime: logFile.mtime.toISOString()
-        });
+          logPath: normalizedPath,
+          mtime: logFile.mtime.toISOString(),
+          mode: 'full',
+          fromIndex: false
+        };
+        sessions.push(fullSession);
+
+        // v1.2.0: Write index entry for fully processed session
+        writeIndexEntry(cursor, normalizedPath, result, fileStats, 'full', indexConfig.preserveUserFields);
 
         stats.logsSucceeded++;
         log('verbose', `  Events: ${result.totalEvents} total, ${result.events.length} sampled, ${result.toolFailures.length} failures`);
@@ -2659,7 +3241,11 @@ async function main() {
           logsSucceeded: stats.logsSucceeded,
           logsFailed: stats.logsFailed,
           fastPathSkipped: stats.skipped.fastPathSkipped,
-          extractorSessionsSkipped: stats.skipped.extractorSessions
+          extractorSessionsSkipped: stats.skipped.extractorSessions,
+          // v1.2.0: Index stats
+          indexHits: stats.indexHits,
+          indexMisses: stats.indexMisses,
+          indexEntries: Object.keys(cursor?.index || {}).length
         }
       };
 
@@ -2672,6 +3258,9 @@ async function main() {
         console.log(`Logs failed:             ${auditData.stats.logsFailed}`);
         console.log(`Fast-path skipped:       ${auditData.stats.fastPathSkipped}`);
         console.log(`Extractor sessions:      ${auditData.stats.extractorSessionsSkipped}`);
+        console.log(`Index hits:              ${auditData.stats.indexHits}`);
+        console.log(`Index misses:            ${auditData.stats.indexMisses}`);
+        console.log(`Index entries:           ${auditData.stats.indexEntries}`);
         console.log('');
         console.log('--- Summary ---');
         console.log(`Total events:            ${auditData.summary.totalEvents}`);
@@ -2703,12 +3292,33 @@ async function main() {
 
     // Write cursor (only on successful runs)
     let cursorWritten = false;
+    let indexPruned = { pruned: 0, remaining: 0 };
     if (!opts.dryRun) {
-      const cursorPath = opts.cursor || path.join(outputDir, config.cursorFile || DEFAULTS.cursorFile);
       const cursorDecision = shouldWriteCursor(stats, sessions.length, allLogs.length);
 
       if (cursorDecision.write) {
-        writeCursor(cursorPath, logsToProcess, config.maxRecentFiles);
+        // v1.2.0: Prune index before writing
+        indexPruned = pruneIndex(cursor, indexConfig);
+        if (indexPruned.pruned > 0) {
+          log('verbose', `Index pruned: ${indexPruned.pruned} entries removed, ${indexPruned.remaining} remaining`);
+        }
+
+        // Update cursor metadata
+        cursor.schemaVersion = 2;
+        cursor.lastRunAt = new Date().toISOString();
+        cursor.lastMtimeCutoffMs = Math.max(...logsToProcess.map(f => f.mtimeMs), cursor.lastMtimeCutoffMs || 0);
+
+        // Update recentFiles (maintain backward compatibility for incremental detection)
+        cursor.recentFiles = logsToProcess
+          .slice(0, config.maxRecentFiles || DEFAULTS.maxRecentFiles)
+          .map(f => ({ path: f.path, mtimeMs: f.mtimeMs, sizeBytes: f.size }));
+
+        // Update indexStats
+        cursor.indexStats = cursor.indexStats || {};
+        cursor.indexStats.entryCount = Object.keys(cursor.index || {}).length;
+
+        // Write cursor atomically
+        atomicWriteCursor(cursorPath, cursor);
         cursorWritten = true;
         log('verbose', `Cursor updated: ${cursorPath}`);
       } else {
@@ -2733,6 +3343,16 @@ async function main() {
     }
     if (stats.skipped.fastPathSkipped > 0) {
       log('info', `  Fast-path skipped: ${stats.skipped.fastPathSkipped}`);
+    }
+    // v1.2.0: Index stats
+    if (stats.indexHits > 0 || stats.indexMisses > 0) {
+      const hitRate = stats.indexHits + stats.indexMisses > 0
+        ? ((stats.indexHits / (stats.indexHits + stats.indexMisses)) * 100).toFixed(1)
+        : 0;
+      log('info', `  Index hits: ${stats.indexHits}, misses: ${stats.indexMisses} (${hitRate}% hit rate)`);
+    }
+    if (indexPruned.pruned > 0) {
+      log('info', `  Index pruned: ${indexPruned.pruned} old entries removed`);
     }
     log('info', `  Cursor written: ${cursorWritten ? 'Yes' : 'No'}`)
 
