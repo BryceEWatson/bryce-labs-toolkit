@@ -345,6 +345,53 @@ Edit `.lessons-cursor.json` directly to add annotations. They are preserved acro
 
 Entries with user annotations (tags/notes) are never automatically pruned.
 
+## Tool Result Detection (v1.3.0)
+
+The preprocessor detects tool results from multiple formats to ensure accurate `toolResultsDetected` and `toolFailuresDetected` statistics.
+
+### Supported Formats
+
+1. **Direct `type: "tool_result"` events** - Top-level events with explicit type
+2. **Events with `exit_code`/`exitCode` field** - Any event containing an exit code
+3. **`persisted-output` events** - Events with nested `tool_results` array
+4. **Content blocks** (v1.3.0) - `message.content` arrays containing `{ type: "tool_result", ... }` blocks
+
+### Content Block Format (Claude API)
+
+Claude API returns tool results as content blocks within user messages:
+
+```json
+{
+  "type": "user",
+  "message": {
+    "content": [
+      {
+        "type": "tool_result",
+        "tool_use_id": "toolu_01...",
+        "content": "command output here",
+        "exit_code": 0
+      }
+    ]
+  }
+}
+```
+
+These are now correctly detected and counted as `kind: "tool_result"` events.
+
+### Hash Suffixing
+
+Content block tool results are "exploded" into separate normalized events for accurate counting. Each exploded event receives a unique hash suffix for deterministic deduplication:
+
+- Tool calls: `{lineHash}-tc{index}` (tool_use blocks)
+- Tool results: `{lineHash}-tr{index}` (tool_result blocks)
+
+### Failure Detection
+
+Tool failures are detected when:
+- `exit_code` (or `exitCode`) is non-zero
+- `is_error: true` is present (converted to `exitCode: 1`)
+- Error patterns are detected in output text (fallback)
+
 ## Troubleshooting
 
 ### Preprocessor not found

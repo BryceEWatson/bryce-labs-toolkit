@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Explore the codebase"}]},"timestamp":1700000001,"sessionId":"array-content-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_05","name":"Read","input":{"path":"src/index.ts"}}]},"timestamp":1700000002,"sessionId":"array-content-test-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_05","content":[{"type":"text","text":"export function main() {\n  console.log('Hello');\n}"}]}]},"timestamp":1700000003,"sessionId":"array-content-test-001"}
