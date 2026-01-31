@@ -25,7 +25,7 @@ const crypto = require('crypto');
 // Constants
 // ============================================================================
 
-const TOOL_VERSION = '1.1.1';
+const TOOL_VERSION = '1.3.0';
 const MIN_NODE_VERSION = 14;
 
 // Default configuration values (v1.1.0: nested structure)
@@ -639,6 +639,93 @@ function normalizeToolCalls(raw) {
   }));
 }
 
+/**
+ * Normalize tool_result blocks from message.content arrays.
+ * Returns array of events if explosion needed, null otherwise.
+ * v1.3.0: Handles Claude API content block format
+ * @param {Object} raw - Raw JSONL event
+ * @returns {Array|null} Array of normalized tool_result events or null
+ */
+function normalizeToolResults(raw) {
+  // Check for tool_result blocks in message.content
+  const content = raw.message?.content || [];
+  if (!Array.isArray(content)) return null;
+
+  const toolResultBlocks = content.filter(b => b.type === 'tool_result');
+  if (toolResultBlocks.length === 0) return null;
+
+  // Build tool_use_id → toolName map from any tool_use blocks in same message
+  // (rare in practice, but handles edge cases)
+  const toolUseBlocks = content.filter(b => b.type === 'tool_use');
+  const toolNameMap = new Map();
+  for (const tu of toolUseBlocks) {
+    if (tu.id && tu.name) {
+      toolNameMap.set(tu.id, tu.name);
+    }
+  }
+
+  // Map each tool_result block to a normalized event
+  return toolResultBlocks.map((block, idx) => {
+    // Extract exit code from various field names
+    let exitCode = block.exit_code ?? block.exitCode ?? block.output?.exit_code ?? null;
+
+    // Handle is_error: true when exit_code is missing
+    if (exitCode === null && block.is_error === true) {
+      exitCode = 1;  // Treat as failure
+    }
+
+    // Try to get toolName: direct fields, or map from tool_use_id
+    let toolName = block.name || block.tool_name || block.toolName || null;
+    if (!toolName && block.tool_use_id) {
+      toolName = toolNameMap.get(block.tool_use_id) || null;
+    }
+
+    const blockContent = extractToolResultContent(block);
+
+    return {
+      kind: 'tool_result',
+      timestamp: raw.timestamp || raw.ts || null,
+      text: blockContent,  // Only tool output, no prepended text
+      toolName,
+      exitCode: typeof exitCode === 'number' ? exitCode : null,
+      command: block.input?.command || block.arguments?.command || null,
+      sessionId: raw.sessionId || raw.session_id || null,  // Robust field names
+      metadata: {
+        cwd: raw.cwd || null,
+        gitBranch: raw.gitBranch || raw.git_branch || null  // Robust field names
+      },
+      _explodedIndex: idx
+    };
+  });
+}
+
+/**
+ * Extract text content from a tool_result block.
+ * Handles various content structures (string, array, object).
+ * v1.3.0: Supports Claude API nested content formats
+ */
+function extractToolResultContent(block) {
+  const content = block.content ?? block.output ?? block.text ?? '';
+
+  if (typeof content === 'string') return content;
+
+  if (Array.isArray(content)) {
+    return content.map(item => {
+      if (typeof item === 'string') return item;
+      if (item.text) return item.text;
+      if (item.type === 'text' && item.text) return item.text;
+      return JSON.stringify(item);
+    }).join('\n');
+  }
+
+  if (typeof content === 'object' && content !== null) {
+    if (content.text) return content.text;
+    return JSON.stringify(content);
+  }
+
+  return String(content);
+}
+
 // ============================================================================
 // Log Discovery
 // ============================================================================
@@ -846,18 +933,38 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
         continue;
       }
 
-      // v1.1.1: Handle multi-tool-call explosion
-      const toolCalls = normalizeToolCalls(raw);
-      if (toolCalls) {
-        for (const ev of toolCalls) {
+      // v1.3.0: Handle multi-tool explosion (tool_calls AND tool_results)
+      const toolCallEvents = normalizeToolCalls(raw);
+      const toolResultEvents = normalizeToolResults(raw);
+
+      let hasExplosion = false;
+
+      // Process tool calls
+      if (Array.isArray(toolCallEvents) && toolCallEvents.length > 0) {
+        hasExplosion = true;
+        for (const ev of toolCallEvents) {
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-tc' + ev._explodedIndex;
           ev._fromWindow = 'head';
           hashes.add(ev._hash);
           events.push(ev);
         }
-        continue;
       }
+
+      // Process tool results (v1.3.0: content block support)
+      if (Array.isArray(toolResultEvents) && toolResultEvents.length > 0) {
+        hasExplosion = true;
+        for (const ev of toolResultEvents) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-tr' + ev._explodedIndex;
+          ev._fromWindow = 'head';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+      }
+
+      // Skip normalizeEvent fallback if we exploded
+      if (hasExplosion) continue;
 
       const event = normalizeEvent(raw);
       if (event) {
@@ -949,18 +1056,38 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
         continue;
       }
 
-      // v1.1.1: Handle multi-tool-call explosion
-      const toolCalls = normalizeToolCalls(raw);
-      if (toolCalls) {
-        for (const ev of toolCalls) {
+      // v1.3.0: Handle multi-tool explosion (tool_calls AND tool_results)
+      const toolCallEvents = normalizeToolCalls(raw);
+      const toolResultEvents = normalizeToolResults(raw);
+
+      let hasExplosion = false;
+
+      // Process tool calls
+      if (Array.isArray(toolCallEvents) && toolCallEvents.length > 0) {
+        hasExplosion = true;
+        for (const ev of toolCallEvents) {
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-tc' + ev._explodedIndex;
           ev._fromWindow = 'tail';
           hashes.add(ev._hash);
           events.push(ev);
         }
-        continue;
       }
+
+      // Process tool results (v1.3.0: content block support)
+      if (Array.isArray(toolResultEvents) && toolResultEvents.length > 0) {
+        hasExplosion = true;
+        for (const ev of toolResultEvents) {
+          if (events.length >= maxEvents) break;
+          ev._hash = hash + '-tr' + ev._explodedIndex;
+          ev._fromWindow = 'tail';
+          hashes.add(ev._hash);
+          events.push(ev);
+        }
+      }
+
+      // Skip normalizeEvent fallback if we exploded
+      if (hasExplosion) continue;
 
       const event = normalizeEvent(raw);
       if (event) {
@@ -2963,6 +3090,111 @@ async function runSelfTest() {
     assert(INDEX_DEFAULTS.maxAgeDays === 30, 'default maxAgeDays is 30');
     assert(INDEX_DEFAULTS.pruneStrategy === 'hybrid', 'default pruneStrategy is hybrid');
     assert(INDEX_DEFAULTS.preserveUserFields === true, 'default preserveUserFields is true');
+  }
+
+  // v1.3.0: Content Block Tool Result Tests
+
+  // Test: normalizeToolResults basic explosion
+  console.log('\nnormalizeToolResults Basic (v1.3.0):');
+  {
+    const rawWithResult = {
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', content: 'output text', exit_code: 0 }
+        ]
+      },
+      timestamp: 1234567890,
+      sessionId: 'test-session'
+    };
+    const exploded = normalizeToolResults(rawWithResult);
+    assert(Array.isArray(exploded), 'normalizeToolResults returns array');
+    assert(exploded.length === 1, 'normalizeToolResults has 1 event');
+    assert(exploded[0].kind === 'tool_result', 'normalizeToolResults kind is tool_result');
+    assert(exploded[0].text === 'output text', 'normalizeToolResults extracts text');
+    assert(exploded[0].exitCode === 0, 'normalizeToolResults extracts exit code');
+    assert(exploded[0]._explodedIndex === 0, 'normalizeToolResults sets _explodedIndex');
+  }
+
+  // Test: normalizeToolResults with is_error flag
+  console.log('\nnormalizeToolResults is_error (v1.3.0):');
+  {
+    const rawWithError = {
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', content: 'Error occurred', is_error: true }
+        ]
+      }
+    };
+    const exploded = normalizeToolResults(rawWithError);
+    assert(exploded[0].exitCode === 1, 'is_error converts to exitCode 1');
+  }
+
+  // Test: normalizeToolResults maps tool_use_id to toolName
+  console.log('\nnormalizeToolResults toolName mapping (v1.3.0):');
+  {
+    const rawWithToolUse = {
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } },
+          { type: 'tool_result', tool_use_id: 't1', content: 'file.txt' }
+        ]
+      }
+    };
+    const exploded = normalizeToolResults(rawWithToolUse);
+    assert(exploded[0].toolName === 'Bash', 'maps toolName from tool_use_id');
+  }
+
+  // Test: normalizeToolResults handles array content
+  console.log('\nnormalizeToolResults array content (v1.3.0):');
+  {
+    const rawArrayContent = {
+      type: 'user',
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', content: [
+            { type: 'text', text: 'Line 1' },
+            { type: 'text', text: 'Line 2' }
+          ]}
+        ]
+      }
+    };
+    const exploded = normalizeToolResults(rawArrayContent);
+    assert(exploded[0].text === 'Line 1\nLine 2', 'joins array content with newlines');
+  }
+
+  // Test: normalizeToolResults returns null for non-matching
+  console.log('\nnormalizeToolResults non-matching (v1.3.0):');
+  {
+    const rawNoResults = {
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Hello' }] }
+    };
+    assert(normalizeToolResults(rawNoResults) === null, 'returns null for no tool_result blocks');
+    assert(normalizeToolResults({ type: 'user', content: 'text' }) === null, 'returns null for non-array content');
+    assert(normalizeToolResults({}) === null, 'returns null for empty object');
+  }
+
+  // Test: extractToolResultContent
+  console.log('\nextractToolResultContent (v1.3.0):');
+  {
+    // String content
+    assert(extractToolResultContent({ content: 'plain text' }) === 'plain text', 'extracts string content');
+
+    // Array of text blocks
+    const arrayBlock = { content: [{ type: 'text', text: 'A' }, { type: 'text', text: 'B' }] };
+    assert(extractToolResultContent(arrayBlock) === 'A\nB', 'extracts array content');
+
+    // Object with text property
+    assert(extractToolResultContent({ content: { text: 'obj text' } }) === 'obj text', 'extracts object.text');
+
+    // Falls back to output field
+    assert(extractToolResultContent({ output: 'from output' }) === 'from output', 'falls back to output field');
+
+    // Empty block
+    assert(extractToolResultContent({}) === '', 'empty block returns empty string');
   }
 
   // Summary

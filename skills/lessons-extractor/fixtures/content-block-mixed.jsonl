@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Read file and run command"}]},"timestamp":1700000001,"sessionId":"mixed-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll do both."},{"type":"tool_use","id":"toolu_03","name":"Read","input":{"path":"file.txt"}},{"type":"tool_use","id":"toolu_04","name":"Bash","input":{"command":"echo hello"}}]},"timestamp":1700000002,"sessionId":"mixed-test-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_03","content":"File contents here"},{"type":"tool_result","tool_use_id":"toolu_04","exit_code":0,"content":"hello"}]},"timestamp":1700000003,"sessionId":"mixed-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"timestamp":1700000004,"sessionId":"mixed-test-001"}

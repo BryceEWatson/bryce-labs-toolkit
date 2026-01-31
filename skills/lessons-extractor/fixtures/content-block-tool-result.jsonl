@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Run a failing command"}]},"timestamp":1700000001,"sessionId":"content-block-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll run that command."},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"exit 1"}}]},"timestamp":1700000002,"sessionId":"content-block-test-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"bash: exit code 1\nCommand failed","is_error":true}]},"timestamp":1700000003,"sessionId":"content-block-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The command failed."}]},"timestamp":1700000004,"sessionId":"content-block-test-001"}
