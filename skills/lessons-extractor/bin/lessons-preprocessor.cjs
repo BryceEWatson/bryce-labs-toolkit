@@ -1716,7 +1716,7 @@ function writeIndexEntry(cursor, filePath, sessionResult, fileStats, mode, prese
     toolNames: sessionResult.toolNames || [],
     kindsCount: sessionResult.kindsCount || {},
     hasImportanceMarkers: sessionResult.hasImportanceMarkers ?? null,
-    hasToolFailures: sessionResult.hasToolFailures ?? (sessionResult.toolFailures?.length > 0) ?? false,
+    hasToolFailures: sessionResult.hasToolFailures ?? (sessionResult.toolFailures?.length ? true : false),
     windowing: sessionResult.windowing || null,
     mode,
     lastIndexedAt: new Date().toISOString(),
@@ -2794,6 +2794,16 @@ async function runSelfTest() {
     // Test null/empty handling
     assert(redactPath(null) === null, 'null returns null');
     assert(redactPath('') === '', 'empty string returns empty');
+
+    // v1.2.0: Index keying collision sanity check
+    // Verify that different paths don't collide when used as index keys
+    const path1 = path.join(homeDir, '.claude', 'projects', 'repo-a', 'session1.jsonl');
+    const path2 = path.join(homeDir, '.claude', 'projects', 'repo-b', 'session1.jsonl');
+    const key1 = redactPath(path1);
+    const key2 = redactPath(path2);
+    assert(key1 !== key2, 'different paths produce different index keys');
+    assert(key1.includes('repo-a'), 'path components preserved in key');
+    assert(key2.includes('repo-b'), 'path components preserved in key');
   }
 
   // v1.2.0: Cursor Index Tests
