@@ -1,0 +1,5 @@
+{"type":"system","timestamp":"2026-01-20T10:00:00.000Z","sessionId":"fp-test-001"}
+{"type":"user","timestamp":"2026-01-20T10:00:01.000Z","content":"Read the error handling code"}
+{"type":"assistant","timestamp":"2026-01-20T10:00:02.000Z","content":"I'll read that file for you.","tool_calls":[{"name":"Read","arguments":{"file_path":"src/errors.ts"}}]}
+{"type":"tool_result","name":"Read","timestamp":"2026-01-20T10:00:03.000Z","content":"// Error handling utilities\nexport class ValidationError extends Error {\n  constructor(message: string) {\n    super(message);\n  }\n}\n\n// Error: This comment should not trigger false positive\nfunction handleError(err: Error): void {\n  console.error('Error:', err.message);\n}","exit_code":0}
+{"type":"assistant","timestamp":"2026-01-20T10:00:04.000Z","content":"I see the error handling code. It defines a ValidationError class and an error handler function."}

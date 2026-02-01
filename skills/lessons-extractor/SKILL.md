@@ -183,6 +183,26 @@ This summary provides the statistics needed for the "Run Efficiency Findings" se
 
 **NEVER write helper scripts to analyze this data** - see "Prohibited Actions" above.
 
+### Understanding Run Scope (v1.4.0)
+
+The preprocessor outputs `summary.runScope` to guide lesson regeneration behavior:
+
+| Scope | Meaning | Required Action |
+|-------|---------|-----------------|
+| `full` | Complete reprocessing (--full, --reindex, or --clear) | Regenerate all lessons |
+| `substantial` | >= 5 new sessions processed | Update lessons with new findings |
+| `incremental` | < 5 new sessions | **Skip lesson regeneration entirely** |
+
+**Enforcement**: Before Step 4 (Extract Lessons), check `summary.runScope`:
+- If `incremental`:
+  - Do NOT write lessons.md
+  - Do NOT write lessons.jsonl
+  - Output: "Skipped lesson regeneration (incremental run with N new sessions)"
+  - Exit skill execution
+- If `substantial` or `full`: Proceed with lesson extraction and regeneration.
+
+This prevents churn from tiny incremental runs degrading lesson quality.
+
 ### Step 3: Summarize Sessions
 
 For each session in the preprocessed data, apply the summarize_run prompt:
@@ -196,6 +216,11 @@ For each session in the preprocessed data, apply the summarize_run prompt:
 - The resolution (how it was fixed, or if it wasn't)
 
 ### Step 4: Extract Lessons
+
+**First, check run scope:**
+1. Read `summary.runScope` from preprocessed.json
+2. If `incremental`: Skip to end. Log: "Incremental run - lesson regeneration skipped (N new sessions < threshold)"
+3. If `substantial` or `full`: Continue with extraction below
 
 Apply the extract_lessons prompt to summarized sessions:
 - Identify reusable patterns and anti-patterns
