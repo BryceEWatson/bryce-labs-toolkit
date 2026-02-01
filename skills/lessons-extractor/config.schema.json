@@ -227,7 +227,7 @@
           "properties": {
             "mode": {
               "type": "string",
-              "description": "Detection mode: strict (exitCode only), balanced (+ fatal patterns for shell tools), heuristic (+ broad patterns with threshold)",
+              "description": "Detection mode: strict (exitCode only), balanced (+ fatal patterns for shell tools), heuristic (+ broad patterns with threshold). Note: Fast-path scanning always uses exitCode-only detection regardless of mode setting.",
               "enum": ["strict", "balanced", "heuristic"],
               "default": "strict"
             },
