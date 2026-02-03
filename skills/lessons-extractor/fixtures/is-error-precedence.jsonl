@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Test is_error overriding exit_code:0"}]},"timestamp":1700000001,"sessionId":"is-error-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Running command."},{"type":"tool_use","id":"toolu_ISERR","name":"Bash","input":{"command":"some command"}}]},"timestamp":1700000002,"sessionId":"is-error-test-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ISERR","content":"Error occurred but exit code is 0","exit_code":0,"is_error":true}]},"timestamp":1700000003,"sessionId":"is-error-test-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Acknowledged error."}]},"timestamp":1700000004,"sessionId":"is-error-test-001"}
