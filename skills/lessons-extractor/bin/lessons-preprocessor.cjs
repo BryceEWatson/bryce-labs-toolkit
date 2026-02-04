@@ -25,7 +25,7 @@ const crypto = require('crypto');
 // Constants
 // ============================================================================
 
-const TOOL_VERSION = '1.4.0';
+const TOOL_VERSION = '1.5.0';
 const MIN_NODE_VERSION = 14;
 
 // Default configuration values (v1.1.0: nested structure)
@@ -580,6 +580,7 @@ function normalizeEvent(raw) {
   // Extract tool info from various sources (single value per event)
   let toolName = raw.tool?.name || raw.name || null;
   let command = raw.tool?.arguments?.command || raw.arguments?.command || null;
+  let toolUseId = null;
 
   // For tool_call kind, also check tool_calls array and message.content tool_use blocks
   if (kind === 'tool_call') {
@@ -589,7 +590,21 @@ function normalizeEvent(raw) {
     if (allCalls.length > 0 && !toolName) {
       toolName = allCalls[0].name || null;
       command = allCalls[0].arguments?.command || allCalls[0].input?.command || null;
+      toolUseId = allCalls[0].id || null;
     }
+  }
+
+  // v1.5.0: Extract tool_use_id and is_error for tool_result events
+  // (Fallback path - most tool_result events go through normalizeToolResults)
+  const isError = raw.is_error === true;
+  if (kind === 'tool_result') {
+    toolUseId = raw.tool_use_id || null;
+  }
+
+  let exitCode = raw.exit_code ?? raw.exitCode ?? null;
+  // is_error: true is authoritative - override exit_code if 0 or null
+  if (isError && (exitCode === null || exitCode === 0)) {
+    exitCode = 1;
   }
 
   return {
@@ -597,7 +612,9 @@ function normalizeEvent(raw) {
     timestamp: raw.timestamp || raw.ts || null,
     text: extractText(raw),
     toolName,
-    exitCode: raw.exit_code ?? raw.exitCode ?? null,
+    toolUseId,
+    exitCode,
+    isError,
     command,
     sessionId: raw.sessionId || raw.session_id || null,
     metadata: {
@@ -610,30 +627,47 @@ function normalizeEvent(raw) {
 /**
  * Handle persisted-output with nested tool_results
  * Decision: EXPLODE into multiple normalized events
+ * v1.5.0: Added lineHash parameter for toolUseId fallback generation
+ * @param {Object} raw - Raw JSONL event
+ * @param {string} lineHash - Hash of the raw line for fallback toolUseId
  */
-function normalizePersistedOutput(raw) {
+function normalizePersistedOutput(raw, lineHash) {
   if (raw.type !== 'persisted-output' || !Array.isArray(raw.tool_results)) {
     return null;
   }
 
-  return raw.tool_results.map((tr, idx) => ({
-    kind: 'tool_result',
-    timestamp: raw.timestamp,
-    text: coerceText(tr.content ?? tr.output ?? ''),
-    toolName: tr.name || tr.tool || null,
-    exitCode: tr.exit_code ?? tr.exitCode ?? null,
-    command: tr.arguments?.command || null,
-    sessionId: raw.sessionId || null,
-    _explodedIndex: idx
-  }));
+  return raw.tool_results.map((tr, idx) => {
+    const isError = tr.is_error === true;
+    let exitCode = tr.exit_code ?? tr.exitCode ?? null;
+    // is_error: true is authoritative - override exit_code if 0 or null
+    if (isError && (exitCode === null || exitCode === 0)) {
+      exitCode = 1;
+    }
+
+    return {
+      kind: 'tool_result',
+      timestamp: raw.timestamp,
+      text: coerceText(tr.content ?? tr.output ?? ''),
+      toolName: tr.name || tr.tool || null,
+      toolUseId: tr.tool_use_id || `${lineHash}-po${idx}`,
+      exitCode,
+      isError,
+      command: tr.arguments?.command || null,
+      sessionId: raw.sessionId || null,
+      _explodedIndex: idx
+    };
+  });
 }
 
 /**
  * Handle multi-tool-call messages
  * v1.1.1: EXPLODE tool_calls and message.content tool_use blocks into multiple events
  * This ensures toolNames[] and toolCallsDetected counts are accurate
+ * v1.5.0: Added lineHash parameter for toolUseId fallback generation
+ * @param {Object} raw - Raw JSONL event
+ * @param {string} lineHash - Hash of the raw line for fallback toolUseId
  */
-function normalizeToolCalls(raw) {
+function normalizeToolCalls(raw, lineHash) {
   const calls = raw.tool_calls || raw.toolCalls || [];
   const contentCalls = (raw.message?.content || []).filter(b => b.type === 'tool_use');
   const allCalls = [...calls, ...contentCalls];
@@ -649,26 +683,43 @@ function normalizeToolCalls(raw) {
     .join(' ')
     .trim();
 
-  return allCalls.map((call, idx) => ({
-    kind: 'tool_call',
-    timestamp: raw.timestamp || raw.ts || null,
-    text: idx === 0 ? (textContent || coerceText(raw.content)) : null, // Only first event gets the text
-    toolName: call.name || null,
-    command: call.arguments?.command || call.input?.command || null,
-    exitCode: null,
-    sessionId: raw.sessionId || raw.session_id || null,
-    _explodedIndex: idx
-  }));
+  return allCalls.map((call, idx) => {
+    // Truncate input JSON for failure attribution (v1.5.0)
+    const inputObj = call.input || call.arguments || {};
+    let inputJson = null;
+    try {
+      inputJson = JSON.stringify(inputObj);
+      if (inputJson.length > 500) inputJson = inputJson.slice(0, 500) + '...';
+    } catch {
+      inputJson = '[unserializable]';
+    }
+
+    return {
+      kind: 'tool_call',
+      timestamp: raw.timestamp || raw.ts || null,
+      text: idx === 0 ? (textContent || coerceText(raw.content)) : null, // Only first event gets the text
+      toolName: call.name || null,
+      toolUseId: call.id || `${lineHash}-tc${idx}`,
+      command: call.arguments?.command || call.input?.command || null,
+      exitCode: null,
+      isError: false,
+      sessionId: raw.sessionId || raw.session_id || null,
+      _explodedIndex: idx,
+      _inputJson: inputJson
+    };
+  });
 }
 
 /**
  * Normalize tool_result blocks from message.content arrays.
  * Returns array of events if explosion needed, null otherwise.
  * v1.3.0: Handles Claude API content block format
+ * v1.5.0: Added lineHash parameter for toolUseId fallback generation
  * @param {Object} raw - Raw JSONL event
+ * @param {string} lineHash - Hash of the raw line for fallback toolUseId
  * @returns {Array|null} Array of normalized tool_result events or null
  */
-function normalizeToolResults(raw) {
+function normalizeToolResults(raw, lineHash) {
   // Check for tool_result blocks in message.content
   const content = raw.message?.content || [];
   if (!Array.isArray(content)) return null;
@@ -688,12 +739,15 @@ function normalizeToolResults(raw) {
 
   // Map each tool_result block to a normalized event
   return toolResultBlocks.map((block, idx) => {
+    // v1.5.0: Preserve is_error as separate field
+    const isError = block.is_error === true;
+
     // Extract exit code from various field names
     let exitCode = block.exit_code ?? block.exitCode ?? block.output?.exit_code ?? null;
 
-    // is_error: true is authoritative - override exit_code regardless of value
+    // is_error: true is authoritative - override exit_code if 0 or null
     // Some tools emit exit_code: 0 alongside is_error: true
-    if (block.is_error === true) {
+    if (isError && (exitCode === null || exitCode === 0)) {
       exitCode = 1;  // Treat as failure
     }
 
@@ -710,7 +764,9 @@ function normalizeToolResults(raw) {
       timestamp: raw.timestamp || raw.ts || null,
       text: blockContent,  // Only tool output, no prepended text
       toolName,
+      toolUseId: block.tool_use_id || `${lineHash}-tr${idx}`,
       exitCode: typeof exitCode === 'number' ? exitCode : null,
+      isError,
       command: block.input?.command || block.arguments?.command || null,
       sessionId: raw.sessionId || raw.session_id || null,  // Robust field names
       metadata: {
@@ -747,6 +803,162 @@ function extractToolResultContent(block) {
   }
 
   return String(content);
+}
+
+/**
+ * Build a transaction map linking tool_call events to their tool_result events.
+ * v1.5.0: Enables transaction coherence in sampling and failure attribution.
+ *
+ * @param {Array} events - Array of normalized events with toolUseId
+ * @returns {Map<string, object>} Map of toolUseId -> transaction object
+ */
+function buildTransactionMap(events) {
+  const transactions = new Map();
+
+  // Pass 1: Create transactions from tool_call events
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.kind === 'tool_call' && e.toolUseId) {
+      transactions.set(e.toolUseId, {
+        toolUseId: e.toolUseId,
+        toolName: e.toolName,
+        callEventIndex: i,
+        resultEventIndex: null,
+        state: 'pending',
+        isFailure: false,
+        failureDetails: null,
+        inputSummary: e._inputJson || null,
+        durationMs: null
+      });
+    }
+  }
+
+  // Pass 2: Link tool_result events + backfill toolName/command from call
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.kind === 'tool_result' && e.toolUseId) {
+      let tx = transactions.get(e.toolUseId);
+      if (!tx) {
+        // Orphaned result (call not in window or legacy format)
+        tx = {
+          toolUseId: e.toolUseId,
+          toolName: e.toolName,
+          callEventIndex: null,
+          resultEventIndex: i,
+          state: 'orphaned',
+          isFailure: false,
+          failureDetails: null,
+          inputSummary: null,
+          durationMs: null
+        };
+        transactions.set(e.toolUseId, tx);
+      } else {
+        tx.resultEventIndex = i;
+        tx.state = 'completed';
+
+        // BACKFILL: toolName from call if result has null
+        if (!e.toolName && tx.toolName) {
+          e.toolName = tx.toolName;
+        }
+        // BACKFILL: command from call (result blocks rarely have input.command)
+        if (!e.command && events[tx.callEventIndex]?.command) {
+          e.command = events[tx.callEventIndex].command;
+        }
+
+        // Calculate duration if both timestamps available
+        if (tx.callEventIndex !== null && events[tx.callEventIndex]?.timestamp && e.timestamp) {
+          const callTime = new Date(events[tx.callEventIndex].timestamp).getTime();
+          const resultTime = new Date(e.timestamp).getTime();
+          if (!isNaN(callTime) && !isNaN(resultTime)) {
+            tx.durationMs = resultTime - callTime;
+          }
+        }
+      }
+
+      // Check failure (exitCode or isError)
+      // Note: Only change state to 'failed' if not orphaned (preserve orphaned state)
+      if ((e.exitCode != null && e.exitCode !== 0) || e.isError) {
+        tx.isFailure = true;
+        // Only transition completed→failed, keep orphaned as orphaned
+        if (tx.state !== 'orphaned') {
+          tx.state = 'failed';
+        }
+        tx.failureDetails = {
+          exitCode: e.exitCode,
+          isError: e.isError,
+          detectionTier: 'A',
+          patternMatched: e.isError ? 'is_error' : `exit_code:${e.exitCode}`,
+          errorExcerpt: truncate(e.text, 500)
+        };
+      }
+    }
+  }
+
+  return transactions;
+}
+
+/**
+ * Compute tool metrics from events and transaction map.
+ * v1.5.0: Provides health metrics for transaction coherence validation.
+ *
+ * @param {Array} events - Array of normalized events
+ * @param {Map} transactionMap - Transaction map from buildTransactionMap
+ * @returns {object} Tool metrics including counts, ratios, and health warnings
+ */
+function computeToolMetrics(events, transactionMap) {
+  let toolCallsDetected = 0;
+  let toolResultsDetected = 0;
+
+  for (const e of events) {
+    if (e.kind === 'tool_call') toolCallsDetected++;
+    if (e.kind === 'tool_result') toolResultsDetected++;
+  }
+
+  let transactionsComplete = 0;
+  let transactionsOrphaned = 0;
+  let transactionsPending = 0;
+  let transactionsFailed = 0;
+  let transactionsOrphanedFailed = 0;
+
+  for (const tx of transactionMap.values()) {
+    if (tx.state === 'completed') transactionsComplete++;
+    else if (tx.state === 'failed') { transactionsComplete++; transactionsFailed++; }
+    else if (tx.state === 'orphaned') {
+      transactionsOrphaned++;
+      if (tx.isFailure) transactionsOrphanedFailed++;
+    }
+    else if (tx.state === 'pending') transactionsPending++;
+  }
+
+  const callResultRatio = toolCallsDetected > 0
+    ? toolResultsDetected / toolCallsDetected
+    : 1.0;
+
+  const healthWarnings = [];
+  if (callResultRatio < 0.9 && toolCallsDetected > 5) {
+    healthWarnings.push(`Low call/result ratio (${callResultRatio.toFixed(2)}): may indicate windowing gap or incomplete session`);
+  }
+  if (callResultRatio > 1.1 && toolResultsDetected > 5) {
+    healthWarnings.push(`High call/result ratio (${callResultRatio.toFixed(2)}): may indicate legacy format or parser issue`);
+  }
+  if (transactionsOrphaned > 0) {
+    healthWarnings.push(`${transactionsOrphaned} orphaned transactions (results without matching calls)`);
+  }
+  if (transactionsOrphanedFailed > 0) {
+    healthWarnings.push(`${transactionsOrphanedFailed} orphaned transactions with failures`);
+  }
+
+  return {
+    toolCallsDetected,
+    toolResultsDetected,
+    toolFailuresDetected: transactionsFailed,
+    transactionsComplete,
+    transactionsOrphaned,
+    transactionsOrphanedFailed,
+    transactionsPending,
+    callResultRatio: Math.round(callResultRatio * 100) / 100,
+    healthWarnings
+  };
 }
 
 // ============================================================================
@@ -944,7 +1156,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
       const raw = JSON.parse(trimmedLine);
 
       // Handle persisted-output explosion
-      const persisted = normalizePersistedOutput(raw);
+      const persisted = normalizePersistedOutput(raw, hash);
       if (persisted) {
         for (const ev of persisted) {
           if (events.length >= maxEvents) break;
@@ -957,8 +1169,9 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
       }
 
       // v1.3.0: Handle multi-tool explosion (tool_calls AND tool_results)
-      const toolCallEvents = normalizeToolCalls(raw);
-      const toolResultEvents = normalizeToolResults(raw);
+      // v1.5.0: Pass lineHash for toolUseId fallback generation
+      const toolCallEvents = normalizeToolCalls(raw, hash);
+      const toolResultEvents = normalizeToolResults(raw, hash);
 
       let hasExplosion = false;
 
@@ -1067,7 +1280,7 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
       const raw = JSON.parse(trimmedLine);
 
       // Handle persisted-output explosion
-      const persisted = normalizePersistedOutput(raw);
+      const persisted = normalizePersistedOutput(raw, hash);
       if (persisted) {
         for (const ev of persisted) {
           if (events.length >= maxEvents) break;
@@ -1080,8 +1293,9 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
       }
 
       // v1.3.0: Handle multi-tool explosion (tool_calls AND tool_results)
-      const toolCallEvents = normalizeToolCalls(raw);
-      const toolResultEvents = normalizeToolResults(raw);
+      // v1.5.0: Pass lineHash for toolUseId fallback generation
+      const toolCallEvents = normalizeToolCalls(raw, hash);
+      const toolResultEvents = normalizeToolResults(raw, hash);
 
       let hasExplosion = false;
 
@@ -1450,37 +1664,122 @@ function isToolFailureV2(event, config = {}) {
 }
 
 /**
+ * v1.5.0: Check if event is a tool failure with tiered detection and tier reporting
+ * @param {object} event - Normalized event
+ * @param {object} config - Failure detection configuration
+ * @returns {{ isFailure: boolean, tier: 'A'|'B'|'C'|null, pattern: string|null }}
+ */
+function isToolFailureV3(event, config = {}) {
+  // Ignore explicit non-tool kinds (user, assistant, system)
+  const nonToolKinds = ['user', 'assistant', 'system'];
+  if (nonToolKinds.includes(event.kind)) {
+    return { isFailure: false, tier: null, pattern: null };
+  }
+
+  // Tier A: is_error flag (highest precedence - authoritative signal)
+  if (event.isError === true) {
+    return { isFailure: true, tier: 'A', pattern: 'is_error' };
+  }
+
+  // Tier A: exitCode is ALWAYS authoritative for tool_result or unknown kinds
+  if (event.exitCode != null && event.exitCode !== 0) {
+    return { isFailure: true, tier: 'A', pattern: `exit_code:${event.exitCode}` };
+  }
+
+  // For regex fallback, require tool_result kind
+  if (event.kind !== 'tool_result') {
+    return { isFailure: false, tier: null, pattern: null };
+  }
+
+  const mode = config.mode || 'strict';
+
+  // Strict mode: exitCode only, no regex fallback
+  if (mode === 'strict') {
+    return { isFailure: false, tier: null, pattern: null };
+  }
+
+  // Check tool eligibility for regex fallback
+  if (!isToolEligibleForRegex(event.toolName, config)) {
+    return { isFailure: false, tier: null, pattern: null };
+  }
+
+  // Tier B: Fatal patterns (balanced + heuristic modes)
+  for (const pattern of FATAL_PATTERNS) {
+    if (pattern.test(event.text)) {
+      return { isFailure: true, tier: 'B', pattern: pattern.source };
+    }
+  }
+
+  // Tier C: Broad patterns with threshold (heuristic mode only)
+  if (mode === 'heuristic') {
+    const minMatches = config.minBroadMatches || 2;
+    const matches = BROAD_PATTERNS.filter(p => p.test(event.text));
+    if (matches.length >= minMatches) {
+      return { isFailure: true, tier: 'C', pattern: matches.map(m => m.source).join(',') };
+    }
+  }
+
+  return { isFailure: false, tier: null, pattern: null };
+}
+
+/**
  * Check if an event is a tool failure
  * v1.4.0: Now accepts detectionConfig parameter, defaults to strict mode
+ * v1.5.0: Now delegates to V3 for tiered detection
  * @param {object} event - Normalized event
  * @param {object} detectionConfig - Detection configuration (default: strict mode)
  * @returns {boolean} Whether event represents a failure
  */
 function isToolFailure(event, detectionConfig = { mode: 'strict' }) {
-  return isToolFailureV2(event, detectionConfig);
+  return isToolFailureV3(event, detectionConfig).isFailure;
 }
 
 /**
  * Extract tool failures from events
  * v1.4.0: Now accepts detectionConfig parameter
+ * v1.5.0: Accepts transactionMap for inputSummary, adds toolUseId/isError/detectionTier/patternMatched
  * @param {object[]} events - Normalized events
- * @param {object} detectionConfig - Detection configuration
+ * @param {Map|object} transactionMapOrConfig - Transaction map (v1.5.0) OR detection config (backward compat)
+ * @param {object} detectionConfig - Detection configuration (default: strict mode)
  * @returns {object[]} Array of failure objects
  */
-function extractToolFailures(events, detectionConfig = { mode: 'strict' }) {
+function extractToolFailures(events, transactionMapOrConfig = null, detectionConfig = { mode: 'strict' }) {
+  // Backward compatibility: if second param looks like config, use it as config
+  let transactionMap = null;
+  if (transactionMapOrConfig instanceof Map) {
+    transactionMap = transactionMapOrConfig;
+  } else if (transactionMapOrConfig && typeof transactionMapOrConfig === 'object' && !Array.isArray(transactionMapOrConfig)) {
+    // Check if it's a config object (has mode property or is plain object without Map methods)
+    if (transactionMapOrConfig.mode || !transactionMapOrConfig.has) {
+      detectionConfig = transactionMapOrConfig;
+      transactionMap = null;
+    }
+  }
+
   const failures = [];
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
-    if (!isToolFailure(event, detectionConfig)) continue;
+
+    // Use V3 for tier reporting
+    const detection = isToolFailureV3(event, detectionConfig);
+    if (!detection.isFailure) continue;
+
+    // Get transaction for inputSummary
+    const tx = (transactionMap && event.toolUseId) ? transactionMap.get(event.toolUseId) : null;
 
     failures.push({
       tool: event.toolName,
+      toolUseId: event.toolUseId || null,
       command: event.command,
+      inputSummary: tx?.inputSummary || null,
       exitCode: event.exitCode,
+      isError: event.isError || false,
       error: truncate(event.text, 500),
       timestamp: event.timestamp,
-      eventIndex: i
+      eventIndex: i,
+      detectionTier: detection.tier,
+      patternMatched: detection.pattern
     });
   }
 
@@ -1530,13 +1829,15 @@ function applyRedaction(obj, compiledRegexes) {
 /**
  * Compute sample indices for event selection
  * v1.1.0: Added importance window support, nested config
+ * v1.5.0: Added events parameter for transaction coherence
  * @param {number} totalEvents - Total event count
  * @param {number[]} failureIndices - Indices of tool failures
  * @param {number[]} importanceIndices - Indices of importance markers (v1.1.0)
  * @param {object} config - Configuration object
+ * @param {Array|null} events - Events array for transaction coherence (v1.5.0, optional)
  * @returns {number[]} Sorted indices to keep
  */
-function computeSampleIndices(totalEvents, failureIndices, importanceIndices, config) {
+function computeSampleIndices(totalEvents, failureIndices, importanceIndices, config, events = null) {
   const indices = new Set();
   config = config || {};
 
@@ -1546,6 +1847,8 @@ function computeSampleIndices(totalEvents, failureIndices, importanceIndices, co
   const resolutionCount = sampling.resolutionEvents ?? config.resolutionEventsCount ?? DEFAULTS.sampling.resolutionEvents;
   const errorWindow = sampling.errorWindowEvents ?? config.errorWindowEvents ?? DEFAULTS.sampling.errorWindowEvents;
   const importanceWindow = sampling.importanceWindowEvents ?? DEFAULTS.sampling.importanceWindowEvents;
+
+  // Phase 1: Standard sampling
 
   // First N (context)
   for (let i = 0; i < Math.min(contextCount, totalEvents); i++) {
@@ -1572,6 +1875,35 @@ function computeSampleIndices(totalEvents, failureIndices, importanceIndices, co
     const end = Math.min(totalEvents, ii + importanceWindow + 1);
     for (let i = start; i < end; i++) {
       indices.add(i);
+    }
+  }
+
+  // Phase 2: Transaction coherence (v1.5.0)
+  // If any event with a toolUseId is selected, include all events with the same toolUseId
+  // NOTE: This may expand indices beyond configured limits - acceptable tradeoff for semantic completeness
+  if (events) {
+    // Build toolUseId → indices map
+    const txToIndices = new Map();
+    for (let i = 0; i < events.length; i++) {
+      const txId = events[i].toolUseId;
+      if (txId) {
+        if (!txToIndices.has(txId)) txToIndices.set(txId, []);
+        txToIndices.get(txId).push(i);
+      }
+    }
+
+    // For each selected index with toolUseId, include all indices in that transaction
+    const toAdd = [];
+    for (const idx of indices) {
+      const txId = events[idx]?.toolUseId;
+      if (txId && txToIndices.has(txId)) {
+        for (const txIdx of txToIndices.get(txId)) {
+          toAdd.push(txIdx);
+        }
+      }
+    }
+    for (const idx of toAdd) {
+      indices.add(idx);
     }
   }
 
@@ -1659,6 +1991,22 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
     sessionId = path.basename(filePath, '.jsonl');
   }
 
+  // v1.5.0: Build transaction map for call/result linking and backfill
+  const transactionMap = buildTransactionMap(allEvents);
+
+  // v1.5.0: Compute transaction stats
+  // Note: orphanedFailed tracks orphaned transactions that also failed (isFailure=true)
+  const txStats = { complete: 0, orphaned: 0, pending: 0, failed: 0, orphanedFailed: 0 };
+  for (const tx of transactionMap.values()) {
+    if (tx.state === 'completed') txStats.complete++;
+    else if (tx.state === 'failed') { txStats.complete++; txStats.failed++; }
+    else if (tx.state === 'orphaned') {
+      txStats.orphaned++;
+      if (tx.isFailure) txStats.orphanedFailed++;
+    }
+    else if (tx.state === 'pending') txStats.pending++;
+  }
+
   // Index tool failures and importance markers
   const toolFailureIndices = [];
   const importanceIndices = [];
@@ -1676,8 +2024,8 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
     }
   }
 
-  // Compute sample indices with importance markers
-  const keepIndices = computeSampleIndices(allEvents.length, toolFailureIndices, importanceIndices, config);
+  // Compute sample indices with importance markers and transaction coherence (v1.5.0)
+  const keepIndices = computeSampleIndices(allEvents.length, toolFailureIndices, importanceIndices, config, allEvents);
 
   // Extract evidence snippets BEFORE truncation
   const evidenceSnippets = toolFailureIndices.map(idx => {
@@ -1699,7 +2047,8 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
   });
 
   // Extract and redact tool failures
-  const toolFailures = extractToolFailures(allEvents, detectionConfig).map(f => applyRedaction(f, compiledRedactions));
+  // v1.5.0: Pass transactionMap for inputSummary and enhanced failure attribution
+  const toolFailures = extractToolFailures(allEvents, transactionMap, detectionConfig).map(f => applyRedaction(f, compiledRedactions));
 
   // v1.1.0: Compute session aggregates
   const sampling = config.sampling || {};
@@ -1723,7 +2072,10 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
     firstUserText: aggregates.firstUserText,
     firstAssistantText: aggregates.firstAssistantText,
     toolNames: aggregates.toolNames,
-    kindsCount: aggregates.kindsCount
+    kindsCount: aggregates.kindsCount,
+
+    // v1.5.0: Transaction stats for health metrics
+    txStats
   };
 }
 
@@ -1938,6 +2290,8 @@ function writeIndexEntry(cursor, filePath, sessionResult, fileStats, mode, prese
     totalEvents: sessionResult.totalEvents || Object.values(sessionResult.kindsCount || {}).reduce((a, b) => a + b, 0),
     toolFailuresCount: sessionResult.toolFailures?.length || 0,
     windowing: sessionResult.windowing || null,
+    // v1.5.0: Store transaction stats for health metric aggregation
+    txStats: sessionResult.txStats || { complete: 0, orphaned: 0, pending: 0, failed: 0 },
     mode,
     lastIndexedAt: new Date().toISOString(),
     // Preserve user fields
@@ -2144,7 +2498,9 @@ function buildCachedSession(indexEntry, fileStats) {
     totalEvents: indexEntry.totalEvents || 0,
     eventCount: indexEntry.totalEvents || null,
     sampledEventCount: 0,
-    toolFailuresCount: indexEntry.toolFailuresCount || 0
+    toolFailuresCount: indexEntry.toolFailuresCount || 0,
+    // v1.5.0: Transaction stats for health metric aggregation
+    txStats: indexEntry.txStats || { complete: 0, orphaned: 0, pending: 0, failed: 0 }
   };
 }
 
@@ -2226,11 +2582,45 @@ function generateOutput(sessions, stats, config, opts = {}) {
   let toolResultsDetected = 0;
   let toolFailuresDetected = 0;
 
+  // v1.5.0: Aggregate transaction stats from sessions
+  let totalTxComplete = 0;
+  let totalTxOrphaned = 0;
+  let totalTxPending = 0;
+  let totalTxFailed = 0;
+  let totalTxOrphanedFailed = 0;
+
   for (const session of sessions) {
     const kinds = session.kindsCount || {};
     toolCallsDetected += kinds.tool_call || 0;
     toolResultsDetected += kinds.tool_result || 0;
     toolFailuresDetected += session.toolFailures?.length || 0;
+
+    // v1.5.0: Aggregate txStats (works for both full and cached sessions)
+    const txStats = session.txStats || { complete: 0, orphaned: 0, pending: 0, failed: 0, orphanedFailed: 0 };
+    totalTxComplete += txStats.complete || 0;
+    totalTxOrphaned += txStats.orphaned || 0;
+    totalTxPending += txStats.pending || 0;
+    totalTxFailed += txStats.failed || 0;
+    totalTxOrphanedFailed += txStats.orphanedFailed || 0;
+  }
+
+  // v1.5.0: Compute call/result ratio and health warnings
+  const callResultRatio = toolCallsDetected > 0
+    ? toolResultsDetected / toolCallsDetected
+    : 1.0;
+
+  const healthWarnings = [];
+  if (callResultRatio < 0.9 && toolCallsDetected > 10) {
+    healthWarnings.push(`Low call/result ratio (${callResultRatio.toFixed(2)}): may indicate windowing gaps`);
+  }
+  if (callResultRatio > 1.1 && toolResultsDetected > 10) {
+    healthWarnings.push(`High call/result ratio (${callResultRatio.toFixed(2)}): may indicate legacy formats`);
+  }
+  if (totalTxOrphaned > 0) {
+    healthWarnings.push(`${totalTxOrphaned} total orphaned transactions across all sessions`);
+  }
+  if (totalTxOrphanedFailed > 0) {
+    healthWarnings.push(`${totalTxOrphanedFailed} orphaned transactions with failures (windowing may hide context)`);
   }
 
   // Group sessions by project path (derived from logPath) (v1.1.0)
@@ -2276,10 +2666,16 @@ function generateOutput(sessions, stats, config, opts = {}) {
       runScope: determineRunScope(opts, stats, config.scopeDetection),
       runScopeReason: getRunScopeReason(opts, stats, config.scopeDetection),
       // v1.1.0: Tool counters and project grouping
+      // v1.5.0: Added transaction metrics and health warnings
       toolStats: {
         toolCallsDetected,
         toolResultsDetected,
-        toolFailuresDetected
+        toolFailuresDetected,
+        transactionsComplete: totalTxComplete,
+        transactionsOrphaned: totalTxOrphaned,
+        transactionsOrphanedFailed: totalTxOrphanedFailed,
+        callResultRatio: Math.round(callResultRatio * 100) / 100,
+        healthWarnings
       },
       projects
     },
@@ -2301,7 +2697,9 @@ function generateOutput(sessions, stats, config, opts = {}) {
       firstUserText: s.firstUserText,
       firstAssistantText: s.firstAssistantText,
       toolNames: s.toolNames,
-      kindsCount: s.kindsCount
+      kindsCount: s.kindsCount,
+      // v1.5.0: Transaction stats
+      txStats: s.txStats
     }))
   };
 }
@@ -3408,6 +3806,207 @@ async function runSelfTest() {
 
     // Empty block
     assert(extractToolResultContent({}) === '', 'empty block returns empty string');
+  }
+
+  // ============================================================================
+  // v1.5.0 Tests: Tool Transactions
+  // ============================================================================
+
+  console.log('\nnormalizeToolCalls toolUseId (v1.5.0):');
+  {
+    const raw = {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 'toolu_TEST123', name: 'Bash', input: { command: 'echo hi' } }] },
+      timestamp: 1700000000
+    };
+    const hash = 'abc123';
+    const result = normalizeToolCalls(raw, hash);
+    assert(Array.isArray(result), 'normalizeToolCalls returns array');
+    assert(result[0].toolUseId === 'toolu_TEST123', 'preserves tool_use.id as toolUseId');
+    assert(result[0]._inputJson !== null, 'includes _inputJson');
+    assert(result[0].isError === false, 'isError defaults to false for tool_call');
+  }
+
+  console.log('\nnormalizeToolCalls fallback toolUseId (v1.5.0):');
+  {
+    const raw = {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Bash', input: {} }] },  // No id field
+      timestamp: 1700000000
+    };
+    const hash = 'fallback123';
+    const result = normalizeToolCalls(raw, hash);
+    assert(result[0].toolUseId === 'fallback123-tc0', 'generates fallback toolUseId from lineHash');
+  }
+
+  console.log('\nnormalizeToolResults toolUseId (v1.5.0):');
+  {
+    const raw = {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_RES456', content: 'output', exit_code: 0 }] },
+      timestamp: 1700000000
+    };
+    const hash = 'def456';
+    const result = normalizeToolResults(raw, hash);
+    assert(Array.isArray(result), 'normalizeToolResults returns array');
+    assert(result[0].toolUseId === 'toolu_RES456', 'preserves tool_use_id as toolUseId');
+  }
+
+  console.log('\nnormalizeToolResults isError preserved (v1.5.0):');
+  {
+    const raw = {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_ERR', content: 'error', is_error: true }] },
+      timestamp: 1700000000
+    };
+    const hash = 'err789';
+    const result = normalizeToolResults(raw, hash);
+    assert(result[0].isError === true, 'preserves is_error as isError field');
+    assert(result[0].exitCode === 1, 'is_error converts to exitCode 1');
+  }
+
+  console.log('\nbuildTransactionMap (v1.5.0):');
+  {
+    const events = [
+      { kind: 'tool_call', toolUseId: 'tx1', toolName: 'Bash', command: 'echo hi', _inputJson: '{"command":"echo hi"}' },
+      { kind: 'tool_result', toolUseId: 'tx1', toolName: null, exitCode: 0, isError: false }
+    ];
+    const txMap = buildTransactionMap(events);
+    assert(txMap.size === 1, 'creates one transaction');
+    const tx = txMap.get('tx1');
+    assert(tx.state === 'completed', 'transaction state is completed');
+    assert(tx.callEventIndex === 0, 'callEventIndex is correct');
+    assert(tx.resultEventIndex === 1, 'resultEventIndex is correct');
+    assert(events[1].toolName === 'Bash', 'backfills toolName from call to result');
+  }
+
+  console.log('\nbuildTransactionMap orphaned (v1.5.0):');
+  {
+    const events = [
+      { kind: 'tool_result', toolUseId: 'orphan1', toolName: 'Unknown', exitCode: 0, isError: false }
+    ];
+    const txMap = buildTransactionMap(events);
+    const tx = txMap.get('orphan1');
+    assert(tx.state === 'orphaned', 'orphaned result has orphaned state');
+    assert(tx.callEventIndex === null, 'orphaned has no call index');
+  }
+
+  console.log('\nbuildTransactionMap failed (v1.5.0):');
+  {
+    const events = [
+      { kind: 'tool_call', toolUseId: 'fail1', toolName: 'Bash', _inputJson: '{}' },
+      { kind: 'tool_result', toolUseId: 'fail1', exitCode: 1, isError: false, text: 'command failed' }
+    ];
+    const txMap = buildTransactionMap(events);
+    const tx = txMap.get('fail1');
+    assert(tx.state === 'failed', 'non-zero exitCode marks transaction as failed');
+    assert(tx.isFailure === true, 'isFailure is true');
+    assert(tx.failureDetails.detectionTier === 'A', 'detectionTier is A');
+  }
+
+  console.log('\ncomputeSampleIndices transaction coherence (v1.5.0):');
+  {
+    const events = [];
+    for (let i = 0; i < 100; i++) {
+      events.push({ kind: 'user' });
+    }
+    // Put tool_call at index 5, tool_result at index 95
+    events[5] = { kind: 'tool_call', toolUseId: 'coherence_test' };
+    events[95] = { kind: 'tool_result', toolUseId: 'coherence_test' };
+
+    const config = { sampling: { contextEvents: 10, resolutionEvents: 5 } };
+    const indices = computeSampleIndices(100, [], [], config, events);
+
+    // Context is 0-9, includes index 5 (tool_call)
+    assert(indices.includes(5), 'includes tool_call at index 5');
+    // Transaction coherence should pull in index 95 (tool_result)
+    assert(indices.includes(95), 'includes paired tool_result at index 95 via coherence');
+  }
+
+  console.log('\nisToolFailureV3 tier reporting (v1.5.0):');
+  {
+    const eventIsError = { kind: 'tool_result', isError: true, exitCode: null };
+    const result1 = isToolFailureV3(eventIsError);
+    assert(result1.isFailure === true, 'is_error triggers failure');
+    assert(result1.tier === 'A', 'is_error is tier A');
+    assert(result1.pattern === 'is_error', 'pattern is is_error');
+
+    const eventExitCode = { kind: 'tool_result', isError: false, exitCode: 127 };
+    const result2 = isToolFailureV3(eventExitCode);
+    assert(result2.isFailure === true, 'non-zero exitCode triggers failure');
+    assert(result2.tier === 'A', 'exitCode is tier A');
+    assert(result2.pattern === 'exit_code:127', 'pattern includes exit code');
+  }
+
+  console.log('\nextractToolFailures enhanced (v1.5.0):');
+  {
+    const events = [
+      { kind: 'tool_result', toolUseId: 'fail_extract', toolName: 'Bash', exitCode: 1, isError: false, text: 'error output', timestamp: '2024-01-01' }
+    ];
+    const txMap = new Map([['fail_extract', { inputSummary: '{"cmd":"test"}' }]]);
+    const failures = extractToolFailures(events, txMap, { mode: 'strict' });
+    assert(failures.length === 1, 'extracts one failure');
+    assert(failures[0].toolUseId === 'fail_extract', 'includes toolUseId');
+    assert(failures[0].inputSummary === '{"cmd":"test"}', 'includes inputSummary from transaction');
+    assert(failures[0].detectionTier === 'A', 'includes detectionTier');
+    assert(failures[0].patternMatched === 'exit_code:1', 'includes patternMatched');
+  }
+
+  console.log('\ncomputeToolMetrics (v1.5.0):');
+  {
+    const events = [
+      { kind: 'tool_call' },
+      { kind: 'tool_call' },
+      { kind: 'tool_result' },
+      { kind: 'tool_result' }
+    ];
+    const txMap = new Map([
+      ['tx1', { state: 'completed', isFailure: false }],
+      ['tx2', { state: 'failed', isFailure: true }]
+    ]);
+    const metrics = computeToolMetrics(events, txMap);
+    assert(metrics.toolCallsDetected === 2, 'counts tool calls');
+    assert(metrics.toolResultsDetected === 2, 'counts tool results');
+    assert(metrics.transactionsComplete === 2, 'counts complete transactions (includes failed)');
+    assert(metrics.callResultRatio === 1, 'ratio is 1.0 when equal');
+  }
+
+  console.log('\ntransaction-complete fixture (v1.5.0):');
+  {
+    const fixturePath = path.join(getSkillRoot(), 'fixtures', 'transaction-complete.jsonl');
+    if (fs.existsSync(fixturePath)) {
+      const result = await processLogFile(fixturePath, { ...DEFAULTS }, [], { mode: 'strict' });
+      assert(result.txStats.complete >= 3, 'fixture has 3+ complete transactions');
+      assert(result.txStats.orphaned === 0, 'fixture has no orphaned transactions');
+    } else {
+      console.log('  [SKIP] fixture not found');
+    }
+  }
+
+  console.log('\ntransaction-orphaned fixture (v1.5.0):');
+  {
+    const fixturePath = path.join(getSkillRoot(), 'fixtures', 'transaction-orphaned.jsonl');
+    if (fs.existsSync(fixturePath)) {
+      const result = await processLogFile(fixturePath, { ...DEFAULTS }, [], { mode: 'strict' });
+      assert(result.txStats.orphaned >= 2, 'fixture has 2+ orphaned transactions');
+      assert(result.txStats.orphanedFailed >= 1, 'fixture has 1+ orphaned transactions with failures');
+    } else {
+      console.log('  [SKIP] fixture not found');
+    }
+  }
+
+  console.log('\nis-error-precedence fixture (v1.5.0):');
+  {
+    const fixturePath = path.join(getSkillRoot(), 'fixtures', 'is-error-precedence.jsonl');
+    if (fs.existsSync(fixturePath)) {
+      const result = await processLogFile(fixturePath, { ...DEFAULTS }, [], { mode: 'strict' });
+      // Should have 1 failure detected via is_error even though exit_code was 0
+      assert(result.toolFailures.length >= 1, 'detects failure via is_error');
+      assert(result.toolFailures[0].isError === true, 'failure has isError=true');
+      assert(result.toolFailures[0].detectionTier === 'A', 'failure is tier A');
+    } else {
+      console.log('  [SKIP] fixture not found');
+    }
   }
 
   // Summary

@@ -1,0 +1,10 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Start of session with tool call"}]},"timestamp":1700000001,"sessionId":"tx-split-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Running early command."},{"type":"tool_use","id":"toolu_EARLY","name":"Bash","input":{"command":"echo early"}}]},"timestamp":1700000002,"sessionId":"tx-split-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Middle of session - padding event 1"}]},"timestamp":1700000010,"sessionId":"tx-split-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Padding response 1"}]},"timestamp":1700000011,"sessionId":"tx-split-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Middle of session - padding event 2"}]},"timestamp":1700000012,"sessionId":"tx-split-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Padding response 2"}]},"timestamp":1700000013,"sessionId":"tx-split-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Middle of session - padding event 3"}]},"timestamp":1700000014,"sessionId":"tx-split-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Padding response 3"}]},"timestamp":1700000015,"sessionId":"tx-split-001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_EARLY","content":"early output","exit_code":0}]},"timestamp":1700000099,"sessionId":"tx-split-001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"End of session."}]},"timestamp":1700000100,"sessionId":"tx-split-001"}
