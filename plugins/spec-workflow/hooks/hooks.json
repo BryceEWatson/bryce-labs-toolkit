@@ -1,0 +1,17 @@
+{
+  "description": "Spec-workflow review loop orchestration",
+  "hooks": {
+    "SubagentStop": [
+      {
+        "matcher": "plan-reviewer|pr-reviewer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/check-review-result.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

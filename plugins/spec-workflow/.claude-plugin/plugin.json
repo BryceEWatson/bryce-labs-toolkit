@@ -1,0 +1,12 @@
+{
+  "name": "spec-workflow",
+  "version": "1.0.0",
+  "description": "Spec-driven development: Specification → Planning → Implementation → Review with internal quality gates",
+  "author": {
+    "name": "Bryce Watson",
+    "email": "bryce@brycelabs.dev"
+  },
+  "repository": "https://github.com/BryceEWatson/bryce-labs-toolkit",
+  "license": "Apache-2.0",
+  "keywords": ["workflow", "spec-driven", "planning", "code-review"]
+}
