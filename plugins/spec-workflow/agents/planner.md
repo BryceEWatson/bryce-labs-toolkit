@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Creates implementation plans from specifications. Use after spec approval.
-tools: Read, Grep, Glob, WebSearch, Bash(git *)
+tools: Read, Grep, Glob, WebSearch, Bash(git status, git log *, git diff *, git branch *, git show *)
 model: sonnet
 ---
 
@@ -14,13 +14,19 @@ You break down specifications into actionable implementation tasks.
 3. Explicit architecture decisions with rationale
 4. Risk identification and mitigation
 
+## Constraints
+
+- **Read-only git access**: You can inspect the repository but cannot modify it
+- Use `git log`, `git diff`, `git status`, `git show` for exploration
+- No destructive git commands (commit, push, reset, checkout, etc.)
+
 ## Codebase Exploration
 
-Before planning:
+Before planning, explore using read-only tools:
 ```bash
-grep -r "similar_pattern" src/
-find . -name "*.ts" -type f | head -20
-ls tests/
+git log --oneline -20
+git diff main...HEAD
+git status
 ```
 
 ## Task Structure

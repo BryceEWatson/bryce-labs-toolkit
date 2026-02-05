@@ -58,6 +58,57 @@ def read_transcript(transcript_path: str) -> str:
     return '\n'.join(content_parts)
 
 
+def extract_verdict(transcript: str) -> tuple[bool, bool]:
+    """
+    Extract verdict from structured output.
+
+    Looks for ## Verdict section with specific tokens to avoid false positives
+    from casual mentions of words like "Missing" in summaries.
+
+    Returns: (approved, has_issues)
+    """
+    import re
+
+    # Look for ## Verdict section
+    verdict_match = re.search(
+        r'##\s*Verdict\s*\n(.*?)(?=\n##|\Z)',
+        transcript,
+        re.IGNORECASE | re.DOTALL
+    )
+
+    if verdict_match:
+        verdict_text = verdict_match.group(1)
+        approved = any(ind in verdict_text for ind in [
+            '✅ Approved',
+            '**✅ Approved**',
+            'APPROVED',
+            '✅ PLAN APPROVED',
+        ])
+        has_issues = any(ind in verdict_text for ind in [
+            'Changes Requested',
+            'Rejected',
+            '❌',
+        ])
+        return approved, has_issues
+
+    # Fallback: check for structured markers anywhere
+    approved = any(ind in transcript for ind in [
+        '## Plan Review: APPROVED',
+        '## PR Review: APPROVED',
+        '✅ PLAN APPROVED',
+        '**✅ Approved**',
+    ])
+
+    has_issues = any(ind in transcript for ind in [
+        '## Plan Review: GAPS IDENTIFIED',
+        '### 🔴 Critical',
+        '**Changes Requested**',
+        '**❌ Rejected**',
+    ])
+
+    return approved, has_issues
+
+
 def main():
     try:
         input_data = json.load(sys.stdin)
@@ -65,6 +116,11 @@ def main():
         # No input or invalid JSON - allow stop
         print(json.dumps({"decision": "approve", "reason": "No input data"}))
         sys.exit(0)
+
+    # Get session and agent identifiers for state isolation
+    session_id = input_data.get('session_id', 'unknown')
+    agent_name = input_data.get('agent_name', 'unknown')
+    state_key = f"{session_id}-{agent_name}"
 
     # Get transcript content from transcript_path
     transcript_path = input_data.get('transcript_path', '')
@@ -74,32 +130,18 @@ def main():
     if not transcript:
         transcript = input_data.get('transcript', '')
 
-    # Check for approval indicators
-    approved = any(ind in transcript for ind in [
-        'APPROVED',
-        '✅ Approved',
-        '✅ PLAN APPROVED',
-        'Ready for user',
-        '100%'
-    ])
+    # Check for structured verdict
+    approved, has_issues = extract_verdict(transcript)
 
-    gaps = any(ind in transcript for ind in [
-        'GAPS IDENTIFIED',
-        'Changes Requested',
-        '❌',
-        '🔴 Critical',
-        'Missing',
-        'Not found',
-        'Not implemented'
-    ])
-
-    # Track iterations via state file
+    # Track iterations via state file, keyed by session+agent to avoid collisions
     # Use project dir if available, otherwise temp directory
     project_dir = os.environ.get('CLAUDE_PROJECT_DIR', '')
     if project_dir:
-        state_file = Path(project_dir) / '.claude' / 'review-loop-state.json'
+        state_dir = Path(project_dir) / '.claude' / 'review-loop-state'
     else:
-        state_file = Path('/tmp') / 'claude-review-loop-state.json'
+        state_dir = Path('/tmp') / 'claude-review-loop-state'
+
+    state_file = state_dir / f"{state_key}.json"
 
     try:
         state = json.loads(state_file.read_text()) if state_file.exists() else {'iterations': 0}
@@ -109,10 +151,10 @@ def main():
     state['iterations'] += 1
     max_iterations = 5
 
-    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps(state))
 
-    if approved and not gaps:
+    if approved and not has_issues:
         # Clean up and approve
         state_file.unlink(missing_ok=True)
         print(json.dumps({

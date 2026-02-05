@@ -48,6 +48,31 @@ Spec-driven development with automated review loops.
 - Prompt-based Stop hooks evaluate completion
 - Max 5 iterations before escalating to user
 
+### Review Loop Behavior
+
+The automated review loops use Claude Code's prompt-based Stop hooks defined in
+agent frontmatter. Loop behavior depends on Claude Code's hook support:
+
+- **If hooks work**: Reviewer agents automatically re-invoke after finding gaps
+- **If hooks don't trigger**: Manually re-run the command after making edits
+
+An alternative command-based hook approach using Python is available in
+`hooks/hooks.json` (disabled by default). To enable, rename `_SubagentStop`
+to `SubagentStop`.
+
+### File Naming
+
+Commands generate files with kebab-case feature names derived from your input:
+- `/spec-workflow:spec "Add user authentication"` → `SPEC-user-auth.md`
+- `/spec-workflow:plan docs/specs/SPEC-user-auth.md` → `PLAN-user-auth.md`
+
+## Compatibility
+
+Requires Claude Code 2.1.0+ with support for:
+- `context: fork` in agent frontmatter
+- Prompt-based Stop hooks (`type: prompt`)
+- Plugin path variables (`${CLAUDE_PLUGIN_ROOT}`)
+
 ## License
 
 Apache-2.0
