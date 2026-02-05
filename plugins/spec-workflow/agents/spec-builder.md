@@ -2,6 +2,7 @@
 name: spec-builder
 description: Generates formal specifications from requirements. Use when creating specs.
 tools: Read, Grep, Glob, WebSearch, Write
+model: sonnet
 ---
 
 You transform feature requests into precise, testable specifications.

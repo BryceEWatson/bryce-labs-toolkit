@@ -1,7 +1,8 @@
 {
-  "description": "Spec-workflow review loop orchestration",
+  "description": "Spec-workflow plugin hooks. Review loops use prompt-based hooks defined in agent frontmatter (plan-reviewer.md, pr-reviewer.md). This file documents the alternative command-based approach.",
   "hooks": {
-    "SubagentStop": [
+    "_comment": "Primary review loop hooks are in agent frontmatter using 'type: prompt'. The command-based alternative below is disabled (renamed to _SubagentStop) but preserved for reference.",
+    "_SubagentStop": [
       {
         "matcher": "plan-reviewer|pr-reviewer",
         "hooks": [
