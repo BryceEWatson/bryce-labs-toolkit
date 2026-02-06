@@ -4,6 +4,10 @@ A collection of reusable Claude Code skills, tools, and templates for AI-assiste
 
 ## What's Included
 
+### Plugins
+
+- **[spec-workflow](plugins/spec-workflow/)** - Spec-driven development with automated review loops (Specification → Planning → Implementation → Review)
+
 ### Skills
 
 - **[lessons-extractor](skills/lessons-extractor/)** - Extract lessons learned from Claude Code session logs into organized markdown and JSONL files
@@ -65,6 +69,8 @@ New-Item -ItemType SymbolicLink -Path "C:\path\to\your-project\.claude\skills\le
 
 ```
 bryce-labs-toolkit/
+  plugins/                # Claude Code plugins
+    spec-workflow/        # Spec-driven development workflow
   skills/                 # Claude Code skills
     lessons-extractor/    # Log reflection skill
   tools/                  # CLI tools
