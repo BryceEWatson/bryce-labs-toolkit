@@ -4,10 +4,31 @@ Spec-driven development with automated review loops.
 
 ## Installation
 
+### From Marketplace
+
 ```bash
 /plugin marketplace add BryceEWatson/bryce-labs-toolkit
 /plugin install spec-workflow@bryce-labs
 ```
+
+### From Local Path (Development/PR Testing)
+
+For testing unreleased changes or validating a PR before merge:
+
+```bash
+# Clone the toolkit repository
+git clone https://github.com/BryceEWatson/bryce-labs-toolkit.git
+cd bryce-labs-toolkit
+
+# Checkout the PR branch (if testing a PR)
+git checkout feature/branch-name
+
+# Install from local path (use absolute path)
+/plugin install /absolute/path/to/bryce-labs-toolkit/plugins/spec-workflow
+```
+
+The marketplace follows the default branch. Use local path installation to test
+feature branches or PR changes before they're merged.
 
 ## Commands
 

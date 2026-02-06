@@ -1,7 +1,7 @@
 ---
 description: Generate implementation plan with automated review loop
 argument-hint: "<path-to-spec.md>"
-allowed-tools: Read, Grep, Glob, WebSearch, Write, Bash(git *), Task
+allowed-tools: Read, Grep, Glob, WebSearch, Write, Bash(git status, git log *, git diff *, git branch *, git show *), Task
 ---
 
 Generate and validate an implementation plan.

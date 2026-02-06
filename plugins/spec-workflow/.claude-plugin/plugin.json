@@ -4,7 +4,7 @@
   "description": "Spec-driven development: Specification → Planning → Implementation → Review with internal quality gates",
   "author": {
     "name": "Bryce Watson",
-    "email": "bryce@brycelabs.dev"
+    "url": "https://github.com/BryceEWatson"
   },
   "repository": "https://github.com/BryceEWatson/bryce-labs-toolkit",
   "license": "Apache-2.0",

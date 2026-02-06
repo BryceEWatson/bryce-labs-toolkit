@@ -1,9 +1,13 @@
 # Implementation Plan: {Feature Name}
 
-**Spec:** {link to SPEC.md}
+**Spec:** {REQUIRED: relative path to SPEC.md, e.g., docs/specs/SPEC-feature-name.md}
 **Version:** 1.0
 **Status:** Draft | Under Review | Approved
 **Date:** {YYYY-MM-DD}
+
+> **Note:** The Spec field is mandatory. Plans without a valid spec reference
+> will be rejected by the plan-reviewer. This link enables the implement and
+> review phases to validate against the original requirements.
 
 ## Requirement Mapping
 
