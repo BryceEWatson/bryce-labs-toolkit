@@ -1,0 +1,27 @@
+{
+  "name": "bryce-labs",
+  "owner": {
+    "name": "Bryce Watson",
+    "url": "https://github.com/BryceEWatson"
+  },
+  "metadata": {
+    "description": "Bryce Labs Toolkit - Claude Code plugins for AI-assisted development",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "spec-workflow",
+      "source": "./plugins/spec-workflow",
+      "description": "Spec-driven development with automated review loops",
+      "version": "1.0.0",
+      "keywords": ["workflow", "spec-driven", "review", "planning"],
+      "category": "workflow"
+    },
+    {
+      "name": "lessons-extractor",
+      "source": "./skills/lessons-extractor",
+      "description": "Extract lessons from Claude Code sessions",
+      "version": "1.0.0"
+    }
+  ]
+}
