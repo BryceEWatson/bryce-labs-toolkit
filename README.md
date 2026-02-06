@@ -17,6 +17,25 @@ A collection of reusable Claude Code skills, tools, and templates for AI-assiste
 - **[skills-sync](tools/)** - Install and update skills to target projects (cross-platform wrappers included)
 - **[lint-skills](tools/lint-skills.sh)** - Lint skills for Windows-unsafe patterns
 
+## Install Plugins
+
+Plugins are installed via the Claude Code marketplace:
+
+```bash
+# Add the marketplace source (one-time)
+/plugin marketplace add BryceEWatson/bryce-labs-toolkit
+
+# Install a plugin
+/plugin install spec-workflow@bryce-labs
+```
+
+For development or testing a PR branch, install from a local path:
+
+```bash
+git clone https://github.com/BryceEWatson/bryce-labs-toolkit.git
+/plugin install /path/to/bryce-labs-toolkit/plugins/spec-workflow
+```
+
 ## Install Skills
 
 ### Using skills-sync (Recommended)
