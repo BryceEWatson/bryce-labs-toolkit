@@ -94,6 +94,16 @@ Requires Claude Code 2.1.0+ with support for:
 - Prompt-based Stop hooks (`type: prompt`)
 - Plugin path variables (`${CLAUDE_PLUGIN_ROOT}`)
 
+## Known Issue (Upstream: Claude Code)
+
+Claude Code's slash-command picker may auto-submit a selected command immediately,
+which prevents typing arguments first (e.g., `/spec-workflow:spec <feature-description>`).
+
+**Workaround:** Type the command manually and then add arguments, e.g.:
+`/spec-workflow:spec ` + your feature description (or use tab completion).
+
+**Upstream:** https://github.com/anthropics/claude-code/issues/23781
+
 ## License
 
 Apache-2.0
