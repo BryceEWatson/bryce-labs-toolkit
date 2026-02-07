@@ -10,6 +10,7 @@ A collection of reusable Claude Code skills, tools, and templates for AI-assiste
 
 ### Skills
 
+- **[cleanup](skills/cleanup/)** - Post-merge git branch cleanup with safety checks, auto-detected base branch, and squash-merge support
 - **[lessons-extractor](skills/lessons-extractor/)** - Extract lessons learned from Claude Code session logs into organized markdown and JSONL files
 
 ### Tools
@@ -91,6 +92,7 @@ bryce-labs-toolkit/
   plugins/                # Claude Code plugins
     spec-workflow/        # Spec-driven development workflow
   skills/                 # Claude Code skills
+    cleanup/              # Post-merge branch cleanup
     lessons-extractor/    # Log reflection skill
   tools/                  # CLI tools
     skills-sync           # POSIX wrapper
