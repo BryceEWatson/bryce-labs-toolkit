@@ -14,6 +14,13 @@ bryce-labs-toolkit/
 
   skills/                 # Claude Code skills
     README.md             # Skills development guide
+    cleanup/              # Post-merge branch cleanup skill
+      SKILL.md            # Skill definition (YAML frontmatter + instructions)
+      bin/                # Executable scripts
+        git-cleanup.py    # Python cleanup script (stdlib only)
+        git-cleanup       # POSIX shell wrapper
+        git-cleanup.cmd   # Windows batch wrapper
+      tests/              # pytest integration tests
     lessons-extractor/    # Log reflection skill
       SKILL.md            # Skill definition (YAML frontmatter + instructions)
       config.json         # Default configuration

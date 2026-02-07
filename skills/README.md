@@ -15,6 +15,7 @@ Skills are invoked as slash commands in Claude Code (e.g., `/lessons-extractor`)
 
 | Skill | Description |
 |-------|-------------|
+| [cleanup](cleanup/) | Post-merge git branch cleanup with safety checks |
 | [lessons-extractor](lessons-extractor/) | Extract lessons from Claude Code session logs |
 
 ## Creating a New Skill
