@@ -21,13 +21,13 @@ Remotes:
 Run the cleanup script with the provided arguments:
 
 ```bash
-python3 .claude/skills/cleanup/bin/git-cleanup.py $ARGUMENTS
+python3 skills/cleanup/bin/git-cleanup.py $ARGUMENTS
 ```
 
 If python3 is not available, try:
 
 ```bash
-python .claude/skills/cleanup/bin/git-cleanup.py $ARGUMENTS
+python skills/cleanup/bin/git-cleanup.py $ARGUMENTS
 ```
 
 Report the `[cleanup]` output lines **verbatim** to the user.

@@ -60,17 +60,19 @@ Remotes:
 
 ### Step 1: Run the cleanup script
 
-Run the cleanup script with the user's arguments:
+Locate the script relative to this skill's install location. Try these paths in order:
 
+1. Installed path (after `skills-sync`):
 ```bash
 python3 .claude/skills/cleanup/bin/git-cleanup.py $ARGUMENTS
 ```
 
-If `python3` is not available, try:
-
+2. Source path (in the toolkit repo):
 ```bash
-python .claude/skills/cleanup/bin/git-cleanup.py $ARGUMENTS
+python3 skills/cleanup/bin/git-cleanup.py $ARGUMENTS
 ```
+
+If `python3` is not available, use `python` instead.
 
 ### Step 2: Report results
 
