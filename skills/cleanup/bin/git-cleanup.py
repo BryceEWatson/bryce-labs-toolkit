@@ -424,6 +424,10 @@ def cleanup(args):
             emit_error("no remotes configured")
         return 1
 
+    # Step 4b: Best-effort remote HEAD sync (improves base detection)
+    if not args.base and not get_config("cleanup.base"):
+        run_git("remote", "set-head", remote, "-a", check=False)
+
     # Step 5: Detect base branch
     base = detect_base_branch(remote, explicit=args.base)
     if not base:

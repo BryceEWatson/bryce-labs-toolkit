@@ -2,6 +2,8 @@
 name: cleanup
 description: Post-merge git branch cleanup with safety checks and auto-detected base branch
 argument-hint: "[--dry-run] [--force] [--base <branch>] [--remote <name>] [--allow-dirty] [--prune-tags] [--no-update]"
+disable-model-invocation: true
+allowed-tools: Bash(git *), Bash(python3 *), Bash(python *)
 ---
 
 # cleanup
