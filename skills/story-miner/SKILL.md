@@ -313,6 +313,13 @@ Read the rendering prompt:
 Read: .claude/skills/story-miner/prompts/render_outputs.md
 ```
 
+Before rendering, read `candidates.jsonl` and compute pipeline metadata:
+- **candidatesEvaluated**: total line count
+- **candidatesPromoted**: lines where `status="promoted"`
+- **candidatesRejected**: lines where `status="rejected"`
+
+Pass these counts as context when following `render_outputs.md`.
+
 Generate final outputs from stories.jsonl:
 
 **stories.md** - Human-readable stories with metadata:

@@ -311,7 +311,10 @@ const DEFAULT_STORY_SIGNAL_PATTERNS = [
   { pattern: /interaction between/i,                   signal: 'subtle_interaction', weight: 0.7 },
   { pattern: /edge case/i,                             signal: 'edge_case',         weight: 0.65 },
   { pattern: /workaround/i,                            signal: 'technique',         weight: 0.6 },
-  { pattern: /I.ve confirmed/i,                        signal: 'confirmation',      weight: 0.5 }
+  { pattern: /I.ve confirmed/i,                        signal: 'confirmation',      weight: 0.5 },
+  { pattern: /(approach|strategy|method) (is|was|works|worked)/i, signal: 'technique', weight: 0.7 },
+  { pattern: /(configured|set up|integrated) .+ (tool|workflow|pipeline)/i, signal: 'tooling_insight', weight: 0.7 },
+  { pattern: /(pattern|architecture|design) (decision|choice)/i, signal: 'design_pattern', weight: 0.7 }
 ];
 
 /**
@@ -2643,6 +2646,17 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
       if (event.kind === 'tool_call') event.blockType = 'tool_use';
       else if (event.kind === 'tool_result') event.blockType = 'tool_result';
       else event.blockType = 'text';
+    }
+    // Strip all internal preprocessing fields (underscore-prefixed) from output
+    for (const key of Object.keys(event)) {
+      if (key.startsWith('_')) delete event[key];
+    }
+    // Deep-clone metadata to break shared reference, then strip path-bearing fields
+    if (event.metadata) {
+      event.metadata = { ...event.metadata };
+      delete event.metadata.cwd;
+      delete event.metadata.gitBranch;
+      if (Object.keys(event.metadata).length === 0) delete event.metadata;
     }
     return event;
   });

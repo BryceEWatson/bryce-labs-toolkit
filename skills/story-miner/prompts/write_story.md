@@ -235,7 +235,7 @@ Produce a single JSON object:
 - **dedupeClusterId**: null (clustering happens in separate step)
 - **mergedFrom**: Array of candidateIds merged into this story
 - **score**: Carry forward from candidate (or average if merged)
-- **createdAt**: ISO-8601 timestamp
+- **createdAt**: ISO-8601 timestamp — use the `firstTimestamp` of the session where the primary candidate was found (from the session object in preprocessed.json). Do NOT use the current generation time.
 - **riskFlags**: Array of risk indicators (empty for now)
 
 ## Category Guidelines
@@ -273,8 +273,13 @@ Tags should be:
 - Technical terms (function names, technologies, concepts)
 - Lowercase with hyphens
 - 3-6 tags per story
+- Include the project name as a tag when the story originates from a specific
+  project (derive from the session's `projectId` field or prominent file
+  paths/repo names in the evidence). Example: if the session's projectId is
+  `ShopSmith_v2` or evidence references Etsy API code, include `shopsmith`
+  or `etsy` as a tag.
 
-Good tags: `memory`, `useEffect`, `cleanup`, `objecturl`, `react`, `pdf`
+Good tags: `memory`, `useEffect`, `cleanup`, `objecturl`, `react`, `pdf`, `shopsmith`
 Bad tags: `coding`, `bug-fixing`, `development`, `issue`
 
 ## Quality Standards
