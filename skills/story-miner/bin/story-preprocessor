@@ -1,0 +1,4 @@
+#!/bin/sh
+# POSIX shell wrapper for story-preprocessor
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$SCRIPT_DIR/story-preprocessor.cjs" "$@"

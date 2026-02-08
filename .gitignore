@@ -34,6 +34,9 @@ Thumbs.db
 # Uncomment if you want to exclude by default:
 # docs/ai/lessons-extractor/lessons.jsonl
 
+# Story-miner outputs (personal artifacts, never commit)
+.story-miner/
+
 # Logs
 *.log
 npm-debug.log*

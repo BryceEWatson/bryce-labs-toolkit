@@ -1,0 +1,381 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/BryceEWatson/bryce-labs-toolkit/skills/story-miner/config.schema.json",
+  "title": "Story Miner Configuration",
+  "description": "Configuration schema for the story-miner skill that extracts user stories from Claude conversation logs",
+  "type": "object",
+  "required": ["logGlob", "outputDir", "redactPatterns", "preprocessor", "storyMiner"],
+  "additionalProperties": false,
+  "properties": {
+    "logGlob": {
+      "type": "string",
+      "description": "Glob pattern or directory path to search for conversation logs",
+      "default": "~/.claude/projects"
+    },
+    "outputDir": {
+      "type": "string",
+      "description": "Directory name for storing extracted stories and processing artifacts",
+      "default": ".story-miner"
+    },
+    "redactPatterns": {
+      "type": "array",
+      "description": "Regular expression patterns for redacting sensitive information from logs",
+      "items": {
+        "type": "string",
+        "description": "Regex pattern to match sensitive content for redaction"
+      },
+      "minItems": 1
+    },
+    "preprocessor": {
+      "type": "object",
+      "description": "Configuration for the log preprocessing stage",
+      "required": [
+        "maxLogsPerRun",
+        "truncateContentLength",
+        "skipExtractorSessions",
+        "skipMinerSessions",
+        "followSymlinks",
+        "windowing",
+        "discovery",
+        "sampling",
+        "failureDetection",
+        "indexing",
+        "scopeDetection"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "maxLogsPerRun": {
+          "type": "integer",
+          "description": "Maximum number of conversation logs to process in a single run",
+          "minimum": 1,
+          "default": 50
+        },
+        "truncateContentLength": {
+          "type": "integer",
+          "description": "Maximum length of content samples in preprocessed output (characters)",
+          "minimum": 100,
+          "default": 3000
+        },
+        "skipExtractorSessions": {
+          "type": "boolean",
+          "description": "Skip conversation logs from lessons-extractor sessions",
+          "default": true
+        },
+        "skipMinerSessions": {
+          "type": "boolean",
+          "description": "Skip conversation logs from story-miner sessions",
+          "default": true
+        },
+        "followSymlinks": {
+          "type": "boolean",
+          "description": "Follow symbolic links when discovering conversation logs",
+          "default": false
+        },
+        "windowing": {
+          "type": "object",
+          "description": "Configuration for content windowing strategy",
+          "required": ["headBytes", "tailBytes", "headEvents", "tailEvents"],
+          "additionalProperties": false,
+          "properties": {
+            "headBytes": {
+              "type": "integer",
+              "description": "Number of bytes to capture from the beginning of content",
+              "minimum": 1000,
+              "default": 60000
+            },
+            "tailBytes": {
+              "type": "integer",
+              "description": "Number of bytes to capture from the end of content",
+              "minimum": 1000,
+              "default": 40000
+            },
+            "headEvents": {
+              "type": "integer",
+              "description": "Number of conversation events to capture from the beginning",
+              "minimum": 10,
+              "default": 250
+            },
+            "tailEvents": {
+              "type": "integer",
+              "description": "Number of conversation events to capture from the end",
+              "minimum": 10,
+              "default": 250
+            }
+          }
+        },
+        "discovery": {
+          "type": "object",
+          "description": "Configuration for log file discovery",
+          "required": ["maxDepth", "maxDirectories", "earlyStopCount", "earlyStopAgeDays"],
+          "additionalProperties": false,
+          "properties": {
+            "maxDepth": {
+              "type": "integer",
+              "description": "Maximum directory depth for recursive log discovery",
+              "minimum": 1,
+              "default": 10
+            },
+            "maxDirectories": {
+              "type": "integer",
+              "description": "Maximum number of directories to scan during discovery",
+              "minimum": 10,
+              "default": 1000
+            },
+            "earlyStopCount": {
+              "type": "integer",
+              "description": "Stop after discovering this many logs (0 = disabled)",
+              "minimum": 0,
+              "default": 0
+            },
+            "earlyStopAgeDays": {
+              "type": "integer",
+              "description": "Stop discovering logs older than this many days (0 = disabled)",
+              "minimum": 0,
+              "default": 7
+            }
+          }
+        },
+        "sampling": {
+          "type": "object",
+          "description": "Configuration for event sampling strategies",
+          "required": [
+            "contextEvents",
+            "resolutionEvents",
+            "errorWindowEvents",
+            "importanceWindowEvents",
+            "taskPreviewLength"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "contextEvents": {
+              "type": "integer",
+              "description": "Number of events to sample for context establishment",
+              "minimum": 1,
+              "default": 20
+            },
+            "resolutionEvents": {
+              "type": "integer",
+              "description": "Number of events to sample for resolution detection",
+              "minimum": 1,
+              "default": 20
+            },
+            "errorWindowEvents": {
+              "type": "integer",
+              "description": "Number of events to include in error context windows",
+              "minimum": 1,
+              "default": 5
+            },
+            "importanceWindowEvents": {
+              "type": "integer",
+              "description": "Number of events to include in importance scoring windows",
+              "minimum": 1,
+              "default": 5
+            },
+            "taskPreviewLength": {
+              "type": "integer",
+              "description": "Maximum length of task preview content (characters)",
+              "minimum": 50,
+              "default": 200
+            }
+          }
+        },
+        "failureDetection": {
+          "type": "object",
+          "description": "Configuration for failure mode detection",
+          "required": ["mode"],
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "description": "Failure detection sensitivity mode",
+              "enum": ["strict", "moderate", "permissive"],
+              "default": "strict"
+            }
+          }
+        },
+        "indexing": {
+          "type": "object",
+          "description": "Configuration for session index management",
+          "required": ["maxEntries", "maxAgeDays", "pruneStrategy", "preserveUserFields"],
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "description": "Maximum number of entries in the session index",
+              "minimum": 10,
+              "default": 500
+            },
+            "maxAgeDays": {
+              "type": "integer",
+              "description": "Maximum age of index entries before pruning (days)",
+              "minimum": 1,
+              "default": 30
+            },
+            "pruneStrategy": {
+              "type": "string",
+              "description": "Strategy for pruning old index entries",
+              "enum": ["age", "count", "hybrid"],
+              "default": "hybrid"
+            },
+            "preserveUserFields": {
+              "type": "boolean",
+              "description": "Preserve user-added fields during index updates",
+              "default": true
+            }
+          }
+        },
+        "scopeDetection": {
+          "type": "object",
+          "description": "Configuration for task scope detection",
+          "required": ["incrementalThreshold"],
+          "additionalProperties": false,
+          "properties": {
+            "incrementalThreshold": {
+              "type": "integer",
+              "description": "Minimum number of tool calls to classify as incremental task",
+              "minimum": 1,
+              "default": 5
+            }
+          }
+        }
+      }
+    },
+    "storyMiner": {
+      "type": "object",
+      "description": "Configuration for the story mining stage",
+      "required": [
+        "maxStoriesPerRun",
+        "maxCandidatesPerSession",
+        "maxQuotesPerStory",
+        "maxQuoteLength",
+        "thinkingBlockPolicy",
+        "bannedPhrases",
+        "storySignalPatterns",
+        "structuralValidation",
+        "dedupe"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "maxStoriesPerRun": {
+          "type": "integer",
+          "description": "Maximum number of stories to extract in a single run",
+          "minimum": 1,
+          "default": 20
+        },
+        "maxCandidatesPerSession": {
+          "type": "integer",
+          "description": "Maximum number of story candidates to consider per session",
+          "minimum": 1,
+          "default": 3
+        },
+        "maxQuotesPerStory": {
+          "type": "integer",
+          "description": "Maximum number of supporting quotes per story",
+          "minimum": 1,
+          "default": 5
+        },
+        "maxQuoteLength": {
+          "type": "integer",
+          "description": "Maximum length of individual quotes (characters)",
+          "minimum": 50,
+          "default": 300
+        },
+        "thinkingBlockPolicy": {
+          "type": "string",
+          "description": "Policy for handling Claude thinking blocks in extraction",
+          "enum": ["include", "exclude", "internal_only"],
+          "default": "internal_only"
+        },
+        "bannedPhrases": {
+          "type": "array",
+          "description": "Phrases that disqualify content from being story-worthy",
+          "items": {
+            "type": "string",
+            "description": "Banned phrase pattern (case-insensitive)"
+          },
+          "minItems": 1
+        },
+        "storySignalPatterns": {
+          "type": "array",
+          "description": "Patterns that signal story-worthy content with weighted importance",
+          "items": {
+            "type": "object",
+            "required": ["pattern", "signal", "weight"],
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "Regular expression pattern to match in content"
+              },
+              "signal": {
+                "type": "string",
+                "description": "Type of story signal this pattern indicates",
+                "enum": [
+                  "root_cause",
+                  "twist",
+                  "fix_description",
+                  "subtle_interaction",
+                  "insight",
+                  "edge_case",
+                  "technique",
+                  "confirmation"
+                ]
+              },
+              "weight": {
+                "type": "number",
+                "description": "Importance weight for this signal (0.0-1.0)",
+                "minimum": 0.0,
+                "maximum": 1.0
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "structuralValidation": {
+          "type": "object",
+          "description": "Configuration for structural validation of stories",
+          "required": ["minConcreteNouns"],
+          "additionalProperties": false,
+          "properties": {
+            "minConcreteNouns": {
+              "type": "integer",
+              "description": "Minimum number of concrete nouns required for story validity",
+              "minimum": 1,
+              "default": 2
+            }
+          }
+        },
+        "dedupe": {
+          "type": "object",
+          "description": "Configuration for story deduplication",
+          "required": ["minRareTermOverlap", "stoplist", "maxFrequencyPct"],
+          "additionalProperties": false,
+          "properties": {
+            "minRareTermOverlap": {
+              "type": "integer",
+              "description": "Minimum number of overlapping rare terms to flag as duplicate",
+              "minimum": 1,
+              "default": 3
+            },
+            "stoplist": {
+              "type": "array",
+              "description": "Common terms to exclude from rare term analysis",
+              "items": {
+                "type": "string",
+                "description": "Stop word or common term"
+              },
+              "minItems": 1
+            },
+            "maxFrequencyPct": {
+              "type": "integer",
+              "description": "Maximum frequency percentage for a term to be considered rare",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            }
+          }
+        }
+      }
+    }
+  }
+}

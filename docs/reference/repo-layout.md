@@ -27,6 +27,19 @@ bryce-labs-toolkit/
       config.schema.json  # Configuration schema
       prompts/            # Prompt templates
       examples/           # Sample inputs/outputs
+    story-miner/          # Session history story mining skill
+      SKILL.md            # Skill definition (YAML frontmatter + instructions)
+      config.json         # Default configuration
+      config.schema.json  # Configuration schema
+      bin/                # Preprocessor CLI
+        story-preprocessor.cjs  # Node.js preprocessor (forked from lessons-extractor)
+        story-preprocessor      # POSIX shell wrapper
+        story-preprocessor.cmd  # Windows batch wrapper
+      prompts/            # Prompt templates (score, write, render)
+      eval/               # Deterministic eval runner + fixtures
+        run-selftest.cjs  # Eval runner (decides PASS/FAIL)
+        fixtures/         # Test fixtures (JSON)
+      examples/           # Sample inputs/outputs
 
   docs/                   # Documentation
     index.md              # Docs landing page

@@ -1,0 +1,109 @@
+{
+  "logGlob": "~/.claude/projects",
+  "outputDir": ".story-miner",
+  "redactPatterns": [
+    "api[_-]?key[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+    "password[\"']?\\s*[:=]\\s*[\"']?[^\\s\"',]+",
+    "secret[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+    "token[\"']?\\s*[:=]\\s*[\"']?[\\w-]+",
+    "/Users/[^/]+/",
+    "/home/[^/]+/",
+    "C:\\\\Users\\\\[^\\\\]+\\\\",
+    "ghp_[A-Za-z0-9_]{36,}",
+    "glpat-[A-Za-z0-9_-]{20,}",
+    "xoxb-[A-Za-z0-9-]+",
+    "sk-[A-Za-z0-9]{20,}",
+    "eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}",
+    "-----BEGIN\\s+(RSA\\s+)?(PRIVATE|PUBLIC)\\s+KEY-----",
+    "AKIA[A-Z0-9]{16}",
+    "Authorization:\\s*(Bearer\\s+)?[^\\n]{10,}",
+    "Cookie:\\s*[^\\n]{20,}",
+    "(mongodb|postgres|mysql|redis)://[^\\s\"']+",
+    "[0-9a-f]{64}"
+  ],
+  "preprocessor": {
+    "maxLogsPerRun": 50,
+    "truncateContentLength": 3000,
+    "skipExtractorSessions": true,
+    "skipMinerSessions": true,
+    "followSymlinks": false,
+    "windowing": {
+      "headBytes": 60000,
+      "tailBytes": 40000,
+      "headEvents": 250,
+      "tailEvents": 250
+    },
+    "discovery": {
+      "maxDepth": 10,
+      "maxDirectories": 1000,
+      "earlyStopCount": 0,
+      "earlyStopAgeDays": 7
+    },
+    "sampling": {
+      "contextEvents": 20,
+      "resolutionEvents": 20,
+      "errorWindowEvents": 5,
+      "importanceWindowEvents": 5,
+      "taskPreviewLength": 200
+    },
+    "failureDetection": {
+      "mode": "strict"
+    },
+    "indexing": {
+      "maxEntries": 500,
+      "maxAgeDays": 30,
+      "pruneStrategy": "hybrid",
+      "preserveUserFields": true
+    },
+    "scopeDetection": {
+      "incrementalThreshold": 5
+    }
+  },
+  "storyMiner": {
+    "maxStoriesPerRun": 20,
+    "maxCandidatesPerSession": 3,
+    "maxQuotesPerStory": 5,
+    "maxQuoteLength": 300,
+    "thinkingBlockPolicy": "internal_only",
+    "bannedPhrases": [
+      "always write tests",
+      "best practice",
+      "make sure to",
+      "don't forget to",
+      "it's important to",
+      "always remember",
+      "be careful",
+      "consider using",
+      "you should always",
+      "pro tip",
+      "helpful tip",
+      "keep in mind",
+      "general rule of thumb"
+    ],
+    "storySignalPatterns": [
+      { "pattern": "root cause", "signal": "root_cause", "weight": 0.9 },
+      { "pattern": "the (issue|problem|bug) (is|was)", "signal": "root_cause", "weight": 0.85 },
+      { "pattern": "turns out", "signal": "twist", "weight": 0.8 },
+      { "pattern": "the fix (is|was)", "signal": "fix_description", "weight": 0.7 },
+      { "pattern": "subtle", "signal": "subtle_interaction", "weight": 0.75 },
+      { "pattern": "the reason", "signal": "root_cause", "weight": 0.7 },
+      { "pattern": "key insight", "signal": "insight", "weight": 0.8 },
+      { "pattern": "non-obvious", "signal": "twist", "weight": 0.8 },
+      { "pattern": "interaction between", "signal": "subtle_interaction", "weight": 0.7 },
+      { "pattern": "edge case", "signal": "edge_case", "weight": 0.65 },
+      { "pattern": "workaround", "signal": "technique", "weight": 0.6 },
+      { "pattern": "I've confirmed", "signal": "confirmation", "weight": 0.5 }
+    ],
+    "structuralValidation": {
+      "minConcreteNouns": 2
+    },
+    "dedupe": {
+      "minRareTermOverlap": 3,
+      "stoplist": [
+        "config", "json", "file", "test", "error", "function", "module",
+        "index", "src", "node", "import", "export", "const", "let", "var"
+      ],
+      "maxFrequencyPct": 30
+    }
+  }
+}
