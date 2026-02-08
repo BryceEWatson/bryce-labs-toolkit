@@ -26,12 +26,12 @@ You will receive:
 2. **Evidence events** from `preprocessed.json` (events matching eventIndices):
 ```json
 {
-  "lineIndex": 45,
+  "index": 45,
+  "kind": "assistant",
+  "text": "The memory leak is caused by createObjectURL...",
   "timestamp": "2026-02-07T10:30:00Z",
   "blockType": "text",
-  "role": "assistant",
   "storySignals": ["root_cause"],
-  "redactedContent": "The memory leak is caused by createObjectURL...",
   "toolName": null,
   "provenance": {
     "sessionId": "session-001",
@@ -41,6 +41,11 @@ You will receive:
   }
 }
 ```
+
+**Field notes:**
+- `kind` indicates the event type: `user`, `assistant`, `tool_call`, `tool_result`
+- `text` contains the redacted, truncated content — use this for quotes
+- `blockType` tracks original content block type — NEVER quote from `"thinking"` events
 
 ## Task
 
@@ -90,8 +95,8 @@ Your story should follow this arc:
 
 Each quote MUST include:
 
-1. **Verbatim text** from `redactedContent` (may be lightly edited for clarity)
-2. **Attribution**: "assistant" or "user" based on event's `role` field
+1. **Verbatim text** from the event's `text` field (may be lightly edited for clarity)
+2. **Attribution**: "assistant" or "user" based on event's `kind` field (`tool_call` → "assistant", `tool_result` → "tool")
 3. **Provenance pointer**: Full pointer string in format `{sessionId}/{lineIndex}#{contentHash16}`
 
 ### Quote Format in Narrative

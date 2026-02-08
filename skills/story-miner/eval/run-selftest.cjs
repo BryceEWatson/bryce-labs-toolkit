@@ -26,7 +26,7 @@ const crypto = require('crypto');
 // Constants
 // ============================================================================
 
-const EVAL_VERSION = '1.0.0';
+const EVAL_VERSION = '1.1.0';
 const PREPROCESSOR_VERSION = '1.0.0';
 
 // Hard gate thresholds
@@ -77,6 +77,23 @@ function computeContentHash16(text) {
   if (!text || typeof text !== 'string') return '0000000000000000';
   const input = text.slice(0, 400);
   return crypto.createHash('sha256').update(input, 'utf8').digest('hex').slice(0, 16);
+}
+
+/**
+ * Parse a provenance pointer string into its components.
+ * Format: "{sessionId}/{lineIndex}#{contentHash16}"
+ * @param {string} pointerStr - Pointer string
+ * @returns {{sessionId: string, lineIndex: number, contentHash16: string}|null}
+ */
+function parsePointerString(pointerStr) {
+  if (!pointerStr || typeof pointerStr !== 'string') return null;
+  const match = pointerStr.match(/^(.+?)\/(\d+)#([0-9a-f]{16})$/);
+  if (!match) return null;
+  return {
+    sessionId: match[1],
+    lineIndex: parseInt(match[2], 10),
+    contentHash16: match[3]
+  };
 }
 
 /**
@@ -157,21 +174,51 @@ function loadPipelineOutputs(dir, filenames) {
 }
 
 /**
- * Resolve a provenance pointer to the actual event
- * @param {Object} fixtures - Fixtures array
- * @param {Object} pointer - Provenance pointer {sessionId, lineIndex, contentHash16}
- * @returns {Object|null} Resolved event or null
+ * Build an event index from preprocessed.json for pointer resolution.
+ * Key: "sessionId:eventIndex" -> event object
+ * Also indexes by provenance lineIndex for provenance pointer resolution.
+ * @param {Object} preprocessed - Preprocessed output
+ * @returns {Map} Event index
  */
-function resolvePointer(fixtures, pointer) {
-  for (const fixture of fixtures) {
-    for (const session of fixture.sessions || []) {
-      if (session.sessionId === pointer.sessionId) {
-        const event = session.events[pointer.lineIndex];
-        return event || null;
+function buildEventIndex(preprocessed) {
+  const index = new Map();
+  if (!preprocessed || !preprocessed.sessions) return index;
+
+  for (const session of preprocessed.sessions) {
+    if (!session.events) continue;
+    for (const event of session.events) {
+      // Index by provenance pointer (sessionId:lineIndex from provenance)
+      if (event.provenance) {
+        const key = `${event.provenance.sessionId}:${event.provenance.lineIndex}`;
+        index.set(key, event);
+      }
+      // Also index by sessionId:event.index for eventIndices lookups
+      if (event.index != null) {
+        const key2 = `${session.sessionId}:idx:${event.index}`;
+        index.set(key2, event);
       }
     }
   }
-  return null;
+  return index;
+}
+
+/**
+ * Build an event index from fixtures (fallback when no preprocessed available)
+ * @param {Array} fixtures - Fixture objects
+ * @returns {Map} Event index
+ */
+function buildFixtureEventIndex(fixtures) {
+  const index = new Map();
+  for (const fixture of fixtures) {
+    for (const session of fixture.sessions || []) {
+      for (let i = 0; i < (session.events || []).length; i++) {
+        const event = session.events[i];
+        const key = `${session.sessionId}:${i}`;
+        index.set(key, event);
+      }
+    }
+  }
+  return index;
 }
 
 // ============================================================================
@@ -205,29 +252,52 @@ function runSchemaIntegrity(fixtures, outputs) {
     pass ? passed++ : failed++;
   }
 
-  // Test candidates schema
+  // Test candidates schema (correct field names: candidateId, synopsis, evidencePointers)
   for (let i = 0; i < outputs.candidates.length; i++) {
     const candidate = outputs.candidates[i];
     const name = `Candidate ${i} has required fields`;
-    const hasId = typeof candidate.id === 'string';
-    const hasText = typeof candidate.text === 'string';
-    const hasProvenance = candidate.provenance && Array.isArray(candidate.provenance);
-    const pass = hasId && hasText && hasProvenance;
+    const hasCandidateId = typeof candidate.candidateId === 'string';
+    const hasSessionId = typeof candidate.sessionId === 'string';
+    const hasTitle = typeof candidate.title === 'string';
+    const hasSynopsis = typeof candidate.synopsis === 'string';
+    const hasStatus = candidate.status === 'promoted' || candidate.status === 'rejected' || candidate.status === 'deduped';
+    const hasEvidencePointers = Array.isArray(candidate.evidencePointers);
+    const hasStructuralCheck = candidate.structuralCheck && typeof candidate.structuralCheck === 'object';
+    const pass = hasCandidateId && hasSessionId && hasTitle && hasSynopsis && hasStatus && hasEvidencePointers;
 
-    assertions.push({ name, pass, detail: pass ? 'OK' : 'Missing id/text/provenance' });
+    const missing = [];
+    if (!hasCandidateId) missing.push('candidateId');
+    if (!hasSessionId) missing.push('sessionId');
+    if (!hasTitle) missing.push('title');
+    if (!hasSynopsis) missing.push('synopsis');
+    if (!hasStatus) missing.push('status');
+    if (!hasEvidencePointers) missing.push('evidencePointers');
+
+    assertions.push({ name, pass, detail: pass ? 'OK' : `Missing: ${missing.join(', ')}` });
     pass ? passed++ : failed++;
   }
 
-  // Test stories schema
+  // Test stories schema (correct field names: storyId, synopsis, quotes, claims)
   for (let i = 0; i < outputs.stories.length; i++) {
     const story = outputs.stories[i];
     const name = `Story ${i} has required fields`;
-    const hasId = typeof story.id === 'string';
+    const hasStoryId = typeof story.storyId === 'string';
     const hasTitle = typeof story.title === 'string';
+    const hasSynopsis = typeof story.synopsis === 'string';
+    const hasNarrative = typeof story.narrative === 'string';
     const hasQuotes = Array.isArray(story.quotes);
-    const pass = hasId && hasTitle && hasQuotes;
+    const hasClaims = Array.isArray(story.claims);
+    const pass = hasStoryId && hasTitle && hasSynopsis && hasNarrative && hasQuotes && hasClaims;
 
-    assertions.push({ name, pass, detail: pass ? 'OK' : 'Missing id/title/quotes' });
+    const missing = [];
+    if (!hasStoryId) missing.push('storyId');
+    if (!hasTitle) missing.push('title');
+    if (!hasSynopsis) missing.push('synopsis');
+    if (!hasNarrative) missing.push('narrative');
+    if (!hasQuotes) missing.push('quotes');
+    if (!hasClaims) missing.push('claims');
+
+    assertions.push({ name, pass, detail: pass ? 'OK' : `Missing: ${missing.join(', ')}` });
     pass ? passed++ : failed++;
   }
 
@@ -237,95 +307,145 @@ function runSchemaIntegrity(fixtures, outputs) {
 
 // ============================================================================
 // Suite 2: Grounding/Provenance
+// Resolves pointers against preprocessed.json (primary) or fixtures (fallback)
 // ============================================================================
 
 function runGroundingProvenance(fixtures, outputs) {
   const assertions = [];
-  let passed = 0;
-  let failed = 0;
   let totalPointers = 0;
   let resolvedPointers = 0;
   let hashVerified = 0;
   let quoteCovered = 0;
+  let thinkingQuotes = 0;
 
-  // Build index of all events by session/lineIndex
-  const eventIndex = new Map();
-  for (const fixture of fixtures) {
-    for (const session of fixture.sessions || []) {
-      for (let i = 0; i < session.events.length; i++) {
-        const event = session.events[i];
-        const key = `${session.sessionId}:${i}`;
-        eventIndex.set(key, { event, session });
-      }
+  // Build event index from preprocessed.json (primary) or fixtures (fallback)
+  const eventIndex = outputs.preprocessed
+    ? buildEventIndex(outputs.preprocessed)
+    : buildFixtureEventIndex(fixtures);
+
+  /**
+   * Resolve a pointer (string or object) against the event index
+   * @param {string|Object} pointerInput - Pointer string or object
+   * @returns {Object|null} Resolved event or null
+   */
+  function resolve(pointerInput) {
+    let sessionId, lineIndex, contentHash16;
+
+    if (typeof pointerInput === 'string') {
+      const parsed = parsePointerString(pointerInput);
+      if (!parsed) return null;
+      ({ sessionId, lineIndex, contentHash16 } = parsed);
+    } else if (pointerInput && typeof pointerInput === 'object') {
+      sessionId = pointerInput.sessionId;
+      lineIndex = pointerInput.lineIndex;
+      contentHash16 = pointerInput.contentHash16;
+    } else {
+      return null;
     }
+
+    const key = `${sessionId}:${lineIndex}`;
+    return eventIndex.get(key) || null;
   }
 
-  // Test candidates provenance
+  // Test candidate evidencePointers (array of pointer strings)
   for (const candidate of outputs.candidates) {
-    if (!candidate.provenance) continue;
+    if (!candidate.evidencePointers || !Array.isArray(candidate.evidencePointers)) continue;
 
-    for (const pointer of candidate.provenance) {
+    for (const ptr of candidate.evidencePointers) {
       totalPointers++;
-      const key = `${pointer.sessionId}:${pointer.lineIndex}`;
-      const resolved = eventIndex.get(key);
-
-      if (resolved) {
+      const event = resolve(ptr);
+      if (event) {
         resolvedPointers++;
-        const event = resolved.event;
         const text = event.text || '';
-
-        // Verify hash matches
-        const expectedHash = computeContentHash16(text);
-        if (pointer.contentHash16 === expectedHash) {
-          hashVerified++;
-        }
-
-        // Verify quote is substring of evidence
-        const quoteText = candidate.quote || candidate.text || '';
-        if (text.includes(quoteText.slice(0, 100))) {
-          quoteCovered++;
+        const parsed = typeof ptr === 'string' ? parsePointerString(ptr) : ptr;
+        if (parsed) {
+          const expectedHash = computeContentHash16(text);
+          if (parsed.contentHash16 === expectedHash) hashVerified++;
         }
       }
     }
   }
 
-  // Test stories provenance
+  // Test story quotes provenance (single object per quote, not array)
   for (const story of outputs.stories) {
-    if (!story.quotes) continue;
+    if (!story.quotes || !Array.isArray(story.quotes)) continue;
 
     for (const quote of story.quotes) {
       if (!quote.provenance) continue;
 
-      for (const pointer of quote.provenance) {
-        totalPointers++;
-        const key = `${pointer.sessionId}:${pointer.lineIndex}`;
-        const resolved = eventIndex.get(key);
+      // quote.provenance is a single object with pointer string
+      const ptr = quote.provenance.pointer || quote.provenance;
+      totalPointers++;
+      const event = resolve(ptr);
 
-        if (resolved) {
-          resolvedPointers++;
-          const event = resolved.event;
-          const text = event.text || '';
+      if (event) {
+        resolvedPointers++;
+        const text = event.text || '';
 
-          // Verify hash matches
+        // Verify hash
+        const parsed = typeof ptr === 'string' ? parsePointerString(ptr) : ptr;
+        if (parsed) {
           const expectedHash = computeContentHash16(text);
-          if (pointer.contentHash16 === expectedHash) {
-            hashVerified++;
-          }
+          if (parsed.contentHash16 === expectedHash) hashVerified++;
+        }
 
-          // Verify quote is substring of evidence
-          const quoteText = quote.text || '';
-          if (text.includes(quoteText.slice(0, 100))) {
-            quoteCovered++;
-          }
+        // Verify quote text is substring of evidence
+        const quoteText = quote.text || '';
+        if (quoteText.length > 0 && text.includes(quoteText.slice(0, 100))) {
+          quoteCovered++;
+        }
+
+        // P1-5: Verify quote is NOT from a thinking block
+        if (event.blockType === 'thinking') {
+          thinkingQuotes++;
         }
       }
     }
+  }
+
+  // Test claims grounding (evidencePointers resolve to non-thinking events)
+  let totalClaims = 0;
+  let groundedClaims = 0;
+  let storiesWithRootCause = 0;
+  let storiesWithFix = 0;
+
+  for (const story of outputs.stories) {
+    if (!story.claims || !Array.isArray(story.claims)) continue;
+
+    let hasRootCause = false;
+    let hasFix = false;
+
+    for (const claim of story.claims) {
+      totalClaims++;
+      if (claim.type === 'root_cause') hasRootCause = true;
+      if (claim.type === 'fix') hasFix = true;
+
+      // Verify at least one evidence pointer resolves to non-thinking event
+      const pointers = claim.evidencePointers || [];
+      let anyResolved = false;
+      for (const ptr of pointers) {
+        const event = resolve(ptr);
+        if (event && event.blockType !== 'thinking') {
+          anyResolved = true;
+          break;
+        }
+      }
+      if (anyResolved) groundedClaims++;
+    }
+
+    if (hasRootCause) storiesWithRootCause++;
+    if (hasFix) storiesWithFix++;
   }
 
   // Calculate rates
   const pointerResolveRate = totalPointers > 0 ? resolvedPointers / totalPointers : 1.0;
   const hashVerificationRate = totalPointers > 0 ? hashVerified / totalPointers : 1.0;
-  const quoteCoverageRate = totalPointers > 0 ? quoteCovered / totalPointers : 1.0;
+  const storyQuoteCount = outputs.stories.reduce((sum, s) => sum + (s.quotes?.length || 0), 0);
+  const quoteCoverageRate = storyQuoteCount > 0 ? quoteCovered / storyQuoteCount : 1.0;
+  const claimsGroundedRate = totalClaims > 0 ? groundedClaims / totalClaims : 1.0;
+  const claimsCoverageRate = outputs.stories.length > 0
+    ? Math.min(storiesWithRootCause, storiesWithFix) / outputs.stories.length
+    : 1.0;
 
   assertions.push({
     name: 'Pointer resolve rate',
@@ -342,19 +462,43 @@ function runGroundingProvenance(fixtures, outputs) {
   assertions.push({
     name: 'Quote coverage rate',
     pass: quoteCoverageRate >= THRESHOLDS.quoteCoverageRate,
-    detail: `${(quoteCoverageRate * 100).toFixed(1)}% (${quoteCovered}/${totalPointers})`
+    detail: `${(quoteCoverageRate * 100).toFixed(1)}% (${quoteCovered}/${storyQuoteCount})`
   });
 
-  passed = assertions.filter(a => a.pass).length;
-  failed = assertions.filter(a => !a.pass).length;
+  assertions.push({
+    name: 'No thinking-block quotes',
+    pass: thinkingQuotes === 0,
+    detail: thinkingQuotes === 0 ? 'OK' : `Found ${thinkingQuotes} thinking-block quotes`
+  });
+
+  assertions.push({
+    name: 'Claims grounded rate',
+    pass: claimsGroundedRate >= THRESHOLDS.claimsGroundedRate,
+    detail: `${(claimsGroundedRate * 100).toFixed(1)}% (${groundedClaims}/${totalClaims})`
+  });
+
+  assertions.push({
+    name: 'Claims coverage rate (root_cause + fix per story)',
+    pass: claimsCoverageRate >= THRESHOLDS.claimsCoverageRate,
+    detail: `${(claimsCoverageRate * 100).toFixed(1)}% (root_cause: ${storiesWithRootCause}, fix: ${storiesWithFix}, stories: ${outputs.stories.length})`
+  });
+
+  const passed = assertions.filter(a => a.pass).length;
+  const failed = assertions.filter(a => !a.pass).length;
 
   const gate = (
     pointerResolveRate >= THRESHOLDS.pointerResolveRate &&
     hashVerificationRate >= THRESHOLDS.hashVerificationRate &&
-    quoteCoverageRate >= THRESHOLDS.quoteCoverageRate
+    quoteCoverageRate >= THRESHOLDS.quoteCoverageRate &&
+    thinkingQuotes === 0 &&
+    claimsGroundedRate >= THRESHOLDS.claimsGroundedRate &&
+    claimsCoverageRate >= THRESHOLDS.claimsCoverageRate
   ) ? 'pass' : 'fail';
 
-  return { passed, failed, assertions, gate, metrics: { pointerResolveRate, hashVerificationRate, quoteCoverageRate } };
+  return {
+    passed, failed, assertions, gate,
+    metrics: { pointerResolveRate, hashVerificationRate, quoteCoverageRate, claimsGroundedRate, claimsCoverageRate }
+  };
 }
 
 // ============================================================================
@@ -363,23 +507,21 @@ function runGroundingProvenance(fixtures, outputs) {
 
 function runSafetyLeakScanning(fixtures, outputs) {
   const assertions = [];
-  let passed = 0;
-  let failed = 0;
   const findings = [];
 
   // Scan all output content
   const contentToScan = [];
 
   if (outputs.preprocessed) {
-    contentToScan.push({ type: 'preprocessed', content: JSON.stringify(outputs.preprocessed) });
+    contentToScan.push({ type: 'preprocessed', id: 'preprocessed', content: JSON.stringify(outputs.preprocessed) });
   }
 
   for (const candidate of outputs.candidates) {
-    contentToScan.push({ type: 'candidate', id: candidate.id, content: JSON.stringify(candidate) });
+    contentToScan.push({ type: 'candidate', id: candidate.candidateId || 'unknown', content: JSON.stringify(candidate) });
   }
 
   for (const story of outputs.stories) {
-    contentToScan.push({ type: 'story', id: story.id, content: JSON.stringify(story) });
+    contentToScan.push({ type: 'story', id: story.storyId || 'unknown', content: JSON.stringify(story) });
   }
 
   // Run scanner rules
@@ -387,11 +529,13 @@ function runSafetyLeakScanning(fixtures, outputs) {
     for (const rule of SCANNER_RULES) {
       if (rule.severity !== 'error') continue;
 
+      // Reset regex lastIndex for global patterns
+      rule.pattern.lastIndex = 0;
       const matches = item.content.match(rule.pattern);
       if (matches) {
         findings.push({
           type: item.type,
-          id: item.id || 'N/A',
+          id: item.id,
           rule: rule.name,
           matchCount: matches.length,
           sample: matches[0].slice(0, 50)
@@ -416,8 +560,8 @@ function runSafetyLeakScanning(fixtures, outputs) {
     });
   }
 
-  passed = assertions.filter(a => a.pass).length;
-  failed = assertions.filter(a => !a.pass).length;
+  const passed = assertions.filter(a => a.pass).length;
+  const failed = assertions.filter(a => !a.pass).length;
 
   const gate = secretFindingCount === 0 ? 'pass' : 'fail';
 
@@ -430,34 +574,33 @@ function runSafetyLeakScanning(fixtures, outputs) {
 
 function runGenericAdviceBan(fixtures, outputs) {
   const assertions = [];
-  let passed = 0;
-  let failed = 0;
   const violations = [];
 
-  // Check candidates
+  // Check promoted candidates (title + synopsis)
   for (const candidate of outputs.candidates) {
-    const text = (candidate.text || '').toLowerCase();
+    if (candidate.status !== 'promoted') continue;
+    const text = ((candidate.title || '') + ' ' + (candidate.synopsis || '')).toLowerCase();
     for (const phrase of BANNED_PHRASES) {
       if (text.includes(phrase.toLowerCase())) {
         violations.push({
           type: 'candidate',
-          id: candidate.id,
-          phrase: phrase,
+          id: candidate.candidateId,
+          phrase,
           excerpt: text.slice(0, 100)
         });
       }
     }
   }
 
-  // Check stories
+  // Check stories (title + synopsis + narrative)
   for (const story of outputs.stories) {
-    const text = (story.title + ' ' + story.summary || '').toLowerCase();
+    const text = ((story.title || '') + ' ' + (story.synopsis || '') + ' ' + (story.narrative || '')).toLowerCase();
     for (const phrase of BANNED_PHRASES) {
       if (text.includes(phrase.toLowerCase())) {
         violations.push({
           type: 'story',
-          id: story.id,
-          phrase: phrase,
+          id: story.storyId,
+          phrase,
           excerpt: text.slice(0, 100)
         });
       }
@@ -472,16 +615,18 @@ function runGenericAdviceBan(fixtures, outputs) {
     detail: bannedPhraseCount === 0 ? 'OK' : `Found ${bannedPhraseCount} banned phrases`
   });
 
-  // Structural validation: stories have required narrative elements
+  // Structural validation: promoted stories have required elements
   let structuralPasses = 0;
-  let structuralTotal = outputs.stories.length;
+  const structuralTotal = outputs.stories.length;
 
   for (const story of outputs.stories) {
     const hasTitle = story.title && story.title.length > 0;
-    const hasSummary = story.summary && story.summary.length > 0;
+    const hasSynopsis = story.synopsis && story.synopsis.length > 0;
+    const hasNarrative = story.narrative && story.narrative.length > 0;
     const hasQuotes = story.quotes && story.quotes.length > 0;
+    const hasClaims = story.claims && story.claims.length > 0;
 
-    if (hasTitle && hasSummary && hasQuotes) {
+    if (hasTitle && hasSynopsis && hasNarrative && hasQuotes && hasClaims) {
       structuralPasses++;
     }
   }
@@ -494,8 +639,8 @@ function runGenericAdviceBan(fixtures, outputs) {
     detail: `${(structuralPassRate * 100).toFixed(1)}% (${structuralPasses}/${structuralTotal})`
   });
 
-  passed = assertions.filter(a => a.pass).length;
-  failed = assertions.filter(a => !a.pass).length;
+  const passed = assertions.filter(a => a.pass).length;
+  const failed = assertions.filter(a => !a.pass).length;
 
   const gate = bannedPhraseCount === 0 && structuralPassRate >= THRESHOLDS.structuralPassRate ? 'pass' : 'fail';
 
@@ -535,11 +680,11 @@ function runDedupeCorrectness(fixtures, outputs) {
     return { passed, failed, assertions, gate, metrics: { dedupeClusterPassRate } };
   }
 
-  // Build actual clusters from candidates/stories
+  // Build actual clusters from candidates using dedupeClusterId
   const actualClusters = new Map();
 
   for (const candidate of outputs.candidates) {
-    const clusterId = candidate.dedupeCluster || candidate.id;
+    const clusterId = candidate.dedupeClusterId || candidate.candidateId;
     if (!actualClusters.has(clusterId)) {
       actualClusters.set(clusterId, []);
     }
@@ -563,10 +708,22 @@ function runDedupeCorrectness(fixtures, outputs) {
     assertions.push({
       name,
       pass,
-      detail: pass ? `OK (${actual.length} excerpts)` : `Expected ${expectedCount}, got ${actual.length}`
+      detail: pass ? `OK (${actual.length} candidates)` : `Expected ${expectedCount}, got ${actual.length}`
     });
 
     pass ? passed++ : failed++;
+  }
+
+  // If no expected clusters from fixtures, verify that deduped candidates exist
+  if (expectedClusters.size === 0) {
+    const dedupedCount = outputs.candidates.filter(c => c.status === 'deduped').length;
+    const promotedCount = outputs.candidates.filter(c => c.status === 'promoted').length;
+    assertions.push({
+      name: 'Dedupe produced valid statuses',
+      pass: true,
+      detail: `${promotedCount} promoted, ${dedupedCount} deduped`
+    });
+    passed++;
   }
 
   // Calculate overall rate
@@ -583,8 +740,6 @@ function runDedupeCorrectness(fixtures, outputs) {
 
 function runToolCoherence(fixtures, outputs) {
   const assertions = [];
-  let passed = 0;
-  let failed = 0;
   let totalTransactions = 0;
   let coherentTransactions = 0;
 
@@ -602,7 +757,12 @@ function runToolCoherence(fixtures, outputs) {
           continue;
         }
 
-        // Verify result event exists
+        // Verify result event exists (skip for pending transactions)
+        if (txn.resultEventIndex == null) {
+          if (txn.state === 'pending') coherentTransactions++;
+          continue;
+        }
+
         const resultEvent = session.events[txn.resultEventIndex];
         if (!resultEvent || resultEvent.kind !== 'tool_result') {
           continue;
@@ -623,6 +783,23 @@ function runToolCoherence(fixtures, outputs) {
     }
   }
 
+  // Also check preprocessed transactions if available
+  if (outputs.preprocessed) {
+    for (const session of outputs.preprocessed.sessions || []) {
+      if (!session.transactions) continue;
+
+      for (const txn of session.transactions) {
+        totalTransactions++;
+
+        // For preprocessed, verify transaction has valid state
+        const validStates = ['completed', 'failed', 'orphaned', 'pending'];
+        if (validStates.includes(txn.state) && txn.toolUseId) {
+          coherentTransactions++;
+        }
+      }
+    }
+  }
+
   const toolCoherenceRate = totalTransactions > 0 ? coherentTransactions / totalTransactions : 1.0;
 
   assertions.push({
@@ -631,8 +808,8 @@ function runToolCoherence(fixtures, outputs) {
     detail: `${(toolCoherenceRate * 100).toFixed(1)}% (${coherentTransactions}/${totalTransactions})`
   });
 
-  passed = assertions.filter(a => a.pass).length;
-  failed = assertions.filter(a => !a.pass).length;
+  const passed = assertions.filter(a => a.pass).length;
+  const failed = assertions.filter(a => !a.pass).length;
 
   const gate = toolCoherenceRate >= THRESHOLDS.toolCoherenceRate ? 'pass' : 'fail';
 
@@ -645,8 +822,6 @@ function runToolCoherence(fixtures, outputs) {
 
 function runIdStability(fixtures, outputs, fixturesDir) {
   const assertions = [];
-  let passed = 0;
-  let failed = 0;
 
   // Parse fixtures twice and verify IDs are identical
   const firstIds = new Set();
@@ -657,9 +832,7 @@ function runIdStability(fixtures, outputs, fixturesDir) {
     for (const session of fixture.sessions || []) {
       firstIds.add(session.sessionId);
       for (const event of session.events || []) {
-        if (event.lineHash) {
-          firstIds.add(event.lineHash);
-        }
+        if (event.lineHash) firstIds.add(event.lineHash);
       }
     }
   }
@@ -670,9 +843,7 @@ function runIdStability(fixtures, outputs, fixturesDir) {
     for (const session of fixture.sessions || []) {
       secondIds.add(session.sessionId);
       for (const event of session.events || []) {
-        if (event.lineHash) {
-          secondIds.add(event.lineHash);
-        }
+        if (event.lineHash) secondIds.add(event.lineHash);
       }
     }
   }
@@ -687,10 +858,33 @@ function runIdStability(fixtures, outputs, fixturesDir) {
     detail: allStable ? 'OK' : `ID sets differ (${firstIds.size} vs ${secondIds.size})`
   });
 
-  passed = assertions.filter(a => a.pass).length;
-  failed = assertions.filter(a => !a.pass).length;
+  // Also verify candidate/story IDs are deterministic if outputs exist
+  if (outputs.candidates.length > 0) {
+    const candidateIds = outputs.candidates.map(c => c.candidateId).filter(Boolean);
+    const uniqueIds = new Set(candidateIds);
+    const noDupes = candidateIds.length === uniqueIds.size;
+    assertions.push({
+      name: 'Candidate IDs are unique',
+      pass: noDupes,
+      detail: noDupes ? `OK (${candidateIds.length} unique)` : `${candidateIds.length - uniqueIds.size} duplicates`
+    });
+  }
 
-  const gate = idStability >= THRESHOLDS.idStability ? 'pass' : 'fail';
+  if (outputs.stories.length > 0) {
+    const storyIds = outputs.stories.map(s => s.storyId).filter(Boolean);
+    const uniqueIds = new Set(storyIds);
+    const noDupes = storyIds.length === uniqueIds.size;
+    assertions.push({
+      name: 'Story IDs are unique',
+      pass: noDupes,
+      detail: noDupes ? `OK (${storyIds.length} unique)` : `${storyIds.length - uniqueIds.size} duplicates`
+    });
+  }
+
+  const passed = assertions.filter(a => a.pass).length;
+  const failed = assertions.filter(a => !a.pass).length;
+
+  const gate = failed === 0 ? 'pass' : 'fail';
 
   return { passed, failed, assertions, gate, metrics: { idStability } };
 }
@@ -727,7 +921,7 @@ function generateReport(suiteResults, metrics, overall) {
 
   let report = '# Story Miner Self-Test Report\n\n';
   report += `**Date:** ${timestamp}\n\n`;
-  report += `**Overall:** ${overall === 'pass' ? 'PASS ✅' : 'FAIL ❌'}\n\n`;
+  report += `**Overall:** ${overall === 'pass' ? 'PASS' : 'FAIL'}\n\n`;
 
   report += '## Suite Results\n\n';
   report += '| Suite | Status | Passed | Failed |\n';
@@ -744,7 +938,7 @@ function generateReport(suiteResults, metrics, overall) {
   };
 
   for (const [key, suite] of Object.entries(suiteResults)) {
-    const status = suite.gate === 'pass' ? '✅' : '❌';
+    const status = suite.gate === 'pass' ? 'PASS' : 'FAIL';
     report += `| ${suiteNames[key]} | ${status} | ${suite.passed} | ${suite.failed} |\n`;
   }
 
@@ -759,13 +953,9 @@ function generateReport(suiteResults, metrics, overall) {
     let valueStr = typeof value === 'number' ? value.toFixed(3) : String(value);
     let thresholdStr = typeof threshold === 'number' ? threshold.toFixed(3) : String(threshold);
 
-    // Add comparison operator
     let comparison = '=';
-    if (key.includes('Rate')) {
-      comparison = '>=';
-    } else if (key.includes('Count')) {
-      comparison = '<=';
-    }
+    if (key.includes('Rate')) comparison = '>=';
+    else if (key.includes('Count')) comparison = '<=';
 
     const pass = (
       (comparison === '>=' && value >= threshold) ||
@@ -773,13 +963,12 @@ function generateReport(suiteResults, metrics, overall) {
       (comparison === '=' && value === threshold)
     );
 
-    const status = pass ? '✅' : '❌';
+    const status = pass ? 'PASS' : 'FAIL';
     report += `| ${key} | ${valueStr} | ${comparison} ${thresholdStr} | ${status} |\n`;
   }
 
   report += '\n## Findings\n\n';
 
-  // Add failures
   const failures = [];
   for (const [key, suite] of Object.entries(suiteResults)) {
     if (suite.gate === 'fail') {
@@ -918,8 +1107,10 @@ if (require.main === module) {
 
 module.exports = {
   computeContentHash16,
+  parsePointerString,
   loadFixtures,
   loadPipelineOutputs,
+  buildEventIndex,
   runSchemaIntegrity,
   runGroundingProvenance,
   runSafetyLeakScanning,

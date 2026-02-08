@@ -8,12 +8,12 @@ You will receive `preprocessed.json` containing sessions with per-event `storySi
 
 ```json
 {
-  "lineIndex": N,
+  "index": N,
+  "kind": "user"|"assistant"|"tool_call"|"tool_result",
+  "text": "...",
   "timestamp": "ISO-8601",
   "blockType": "text"|"tool_use"|"tool_result"|"thinking",
-  "role": "user"|"assistant",
-  "storySignals": ["root_cause", "aha_moment", ...],
-  "redactedContent": "...",
+  "storySignals": ["root_cause", "twist", ...],
   "toolName": "...",
   "provenance": {
     "sessionId": "...",
@@ -23,6 +23,11 @@ You will receive `preprocessed.json` containing sessions with per-event `storySi
   }
 }
 ```
+
+**Field notes:**
+- `kind` indicates the event type: `user` (human message), `assistant` (Claude response), `tool_call` (tool invocation), `tool_result` (tool output)
+- `text` contains the redacted, truncated content of the event
+- `blockType` tracks the original content block type (important: `"thinking"` blocks must never be quoted)
 
 ## Task
 

@@ -355,10 +355,12 @@ function computeContentHash16(text) {
  * @returns {{sessionId: string, lineIndex: number, contentHash16: string}}
  */
 function computeProvenance(sessionId, lineIndex, text) {
+  const contentHash16 = computeContentHash16(text);
   return {
     sessionId: sessionId || '',
     lineIndex: lineIndex || 0,
-    contentHash16: computeContentHash16(text)
+    contentHash16,
+    pointer: `${sessionId || ''}/${lineIndex || 0}#${contentHash16}`
   };
 }
 
@@ -441,21 +443,56 @@ function scanDirectory(dirPath, extraRules, bannedPhrases) {
     }
 
     // Check for thinking block quotes in stories (error severity)
+    // Layer 1: Check explicit attribution; Layer 2: Verify source event blockType
     if (file === 'stories.jsonl') {
+      // Load preprocessed.json for source event blockType verification
+      let eventIndex = null;
+      const preprocessedPath = path.join(dirPath, 'preprocessed.json');
+      if (fs.existsSync(preprocessedPath)) {
+        try {
+          const pp = JSON.parse(fs.readFileSync(preprocessedPath, 'utf-8'));
+          if (pp && pp.sessions) {
+            eventIndex = {};
+            for (const session of pp.sessions) {
+              for (const evt of (session.events || [])) {
+                if (evt.provenance) {
+                  const key = `${evt.provenance.sessionId}/${evt.provenance.lineIndex}#${evt.provenance.contentHash16}`;
+                  eventIndex[key] = evt;
+                }
+              }
+            }
+          }
+        } catch { /* ignore load failures */ }
+      }
+
       const lines = content.split('\n').filter(Boolean);
       for (let i = 0; i < lines.length; i++) {
         try {
           const story = JSON.parse(lines[i]);
           if (story.quotes) {
             for (const quote of story.quotes) {
+              // Layer 1: Explicit attribution check
               if (quote.attribution === 'thinking') {
                 findings.push({
                   file,
-                  pattern: 'Thinking block quote',
+                  pattern: 'Thinking block quote (attribution)',
                   severity: 'error',
                   matchPreview: `Story "${story.storyId}": quote attributed to thinking`,
                   offset: 0
                 });
+              }
+              // Layer 2: Verify source event blockType via provenance pointer
+              if (eventIndex && quote.provenance && quote.provenance.pointer) {
+                const sourceEvent = eventIndex[quote.provenance.pointer];
+                if (sourceEvent && sourceEvent.blockType === 'thinking') {
+                  findings.push({
+                    file,
+                    pattern: 'Thinking block quote (source blockType)',
+                    severity: 'error',
+                    matchPreview: `Story "${story.storyId}": quote source event has blockType=thinking at ${quote.provenance.pointer}`,
+                    offset: 0
+                  });
+                }
               }
             }
           }
@@ -639,6 +676,14 @@ function buildDedupeClusters(candidates, preprocessed, config) {
   const clusters = {};
   const candLookup = new Map(candidates.map(c => [c.candidateId, c]));
 
+  // Build session -> firstTimestamp lookup from preprocessed data
+  const sessionTimestamps = {};
+  if (preprocessed && preprocessed.sessions) {
+    for (const session of preprocessed.sessions) {
+      sessionTimestamps[session.sessionId] = session.firstTimestamp || '';
+    }
+  }
+
   for (const [, memberIds] of clusterMap) {
     if (memberIds.length <= 1) continue; // No cluster for singletons
 
@@ -650,11 +695,11 @@ function buildDedupeClusters(candidates, preprocessed, config) {
     const clusterId = crypto.createHash('sha256')
       .update(fingerprints.join('|'), 'utf8').digest('hex').slice(0, 16);
 
-    // Select primary: earliest firstTimestamp, then highest score
+    // Select primary: earliest session firstTimestamp (from preprocessed), then highest score
     const members = memberIds.map(id => candLookup.get(id)).filter(Boolean);
     members.sort((a, b) => {
-      const tsA = a.firstTimestamp || '';
-      const tsB = b.firstTimestamp || '';
+      const tsA = sessionTimestamps[a.sessionId] || '';
+      const tsB = sessionTimestamps[b.sessionId] || '';
       if (tsA !== tsB) return tsA < tsB ? -1 : 1;
       return (b.score || 0) - (a.score || 0);
     });
@@ -1589,6 +1634,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
   const events = [];
   const hashes = new Set();
   let bytesRead = 0;
+  let sourceLineIndex = 0; // Track real line number in JSONL file
 
   const stream = fs.createReadStream(filePath, {
     start: 0,
@@ -1602,6 +1648,9 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
   });
 
   for await (const line of rl) {
+    const currentLineIndex = sourceLineIndex;
+    sourceLineIndex++;
+
     const lineBytes = Buffer.byteLength(line, 'utf8') + 1; // +1 for newline
     bytesRead += lineBytes;
 
@@ -1622,6 +1671,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-' + ev._explodedIndex;
           ev._fromWindow = 'head';
+          ev._sourceLineIndex = currentLineIndex;
           hashes.add(ev._hash);
           events.push(ev);
         }
@@ -1642,6 +1692,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-tc' + ev._explodedIndex;
           ev._fromWindow = 'head';
+          ev._sourceLineIndex = currentLineIndex;
           hashes.add(ev._hash);
           events.push(ev);
         }
@@ -1654,6 +1705,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-tr' + ev._explodedIndex;
           ev._fromWindow = 'head';
+          ev._sourceLineIndex = currentLineIndex;
           hashes.add(ev._hash);
           events.push(ev);
         }
@@ -1666,6 +1718,7 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
       if (event) {
         event._hash = hash;
         event._fromWindow = 'head';
+        event._sourceLineIndex = currentLineIndex;
         hashes.add(hash);
         events.push(event);
       }
@@ -1677,7 +1730,37 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
   rl.close();
   stream.destroy();
 
-  return { events, hashes, bytesRead };
+  return { events, hashes, bytesRead, linesRead: sourceLineIndex };
+}
+
+/**
+ * Count newlines in file from byte 0 up to (but not including) byteOffset.
+ * Used to determine the starting source line index for the tail window.
+ * @param {string} filePath - Path to file
+ * @param {number} byteOffset - Byte offset to count up to
+ * @returns {number} Number of newline characters before byteOffset
+ */
+function countLinesUpTo(filePath, byteOffset) {
+  if (byteOffset <= 0) return 0;
+  const CHUNK = 64 * 1024; // 64 KB chunks
+  const fd = fs.openSync(filePath, 'r');
+  const buf = Buffer.alloc(CHUNK);
+  let lines = 0;
+  let pos = 0;
+  try {
+    while (pos < byteOffset) {
+      const toRead = Math.min(CHUNK, byteOffset - pos);
+      const bytesRead = fs.readSync(fd, buf, 0, toRead, pos);
+      if (bytesRead === 0) break;
+      for (let i = 0; i < bytesRead; i++) {
+        if (buf[i] === 0x0A) lines++; // newline
+      }
+      pos += bytesRead;
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return lines;
 }
 
 /**
@@ -1688,13 +1771,15 @@ async function readHeadWindow(filePath, maxBytes, maxEvents, compiledRedactions)
  * @param {number} maxBytes - Maximum bytes to read
  * @param {number} maxEvents - Maximum events to extract
  * @param {object} compiledRedactions - Redaction patterns
+ * @param {number} startLineIndex - Source line index at tailStartByte (for provenance)
  * @returns {Promise<{events: Array, hashes: Set, bytesRead: number}>}
  */
-async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, compiledRedactions) {
+async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, compiledRedactions, startLineIndex) {
   const events = [];
   const hashes = new Set();
   let bytesRead = 0;
   let isFirstLine = true;
+  let sourceLineIndex = startLineIndex || 0;
 
   // Check if we started mid-line by reading the previous byte
   // If previous byte is \n, we're at a line boundary and first line is complete
@@ -1718,6 +1803,9 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
   });
 
   for await (const line of rl) {
+    const currentLineIndex = sourceLineIndex;
+    sourceLineIndex++;
+
     const lineBytes = Buffer.byteLength(line, 'utf8') + 1;
     bytesRead += lineBytes;
 
@@ -1746,6 +1834,7 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-' + ev._explodedIndex;
           ev._fromWindow = 'tail';
+          ev._sourceLineIndex = currentLineIndex;
           hashes.add(ev._hash);
           events.push(ev);
         }
@@ -1766,6 +1855,7 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-tc' + ev._explodedIndex;
           ev._fromWindow = 'tail';
+          ev._sourceLineIndex = currentLineIndex;
           hashes.add(ev._hash);
           events.push(ev);
         }
@@ -1778,6 +1868,7 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
           if (events.length >= maxEvents) break;
           ev._hash = hash + '-tr' + ev._explodedIndex;
           ev._fromWindow = 'tail';
+          ev._sourceLineIndex = currentLineIndex;
           hashes.add(ev._hash);
           events.push(ev);
         }
@@ -1790,6 +1881,7 @@ async function readTailWindow(filePath, tailStartByte, maxBytes, maxEvents, comp
       if (event) {
         event._hash = hash;
         event._fromWindow = 'tail';
+        event._sourceLineIndex = currentLineIndex;
         hashes.add(hash);
         events.push(event);
       }
@@ -2448,7 +2540,9 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
 
     const headResult = await readHeadWindow(filePath, headBytes, headEvents, compiledRedactions);
     const tailStartByte = Math.max(0, fileSize - tailBytes);
-    const tailResult = await readTailWindow(filePath, tailStartByte, tailBytes, tailEvents, compiledRedactions);
+    // Count lines before tail start to get correct source line indices for tail events
+    const tailStartLineIndex = countLinesUpTo(filePath, tailStartByte);
+    const tailResult = await readTailWindow(filePath, tailStartByte, tailBytes, tailEvents, compiledRedactions, tailStartLineIndex);
 
     const merged = mergeWindows(headResult, tailResult, fileSize, headBytes, tailBytes);
     allEvents = merged.events;
@@ -2541,8 +2635,9 @@ async function processLogFile(filePath, config, compiledRedactions, detectionCon
     event = truncateEvent(event, truncateLength);
     // story-miner: detect story signals on the event text
     event.storySignals = detectStorySignals(event.text, signalPatterns);
-    // story-miner: compute provenance pointer
-    event.provenance = computeProvenance(sessionId, i, event.text);
+    // story-miner: compute provenance pointer using real source line index
+    const realLineIndex = allEvents[i]._sourceLineIndex != null ? allEvents[i]._sourceLineIndex : i;
+    event.provenance = computeProvenance(sessionId, realLineIndex, event.text);
     // story-miner: preserve blockType for thinking-policy enforcement
     if (!event.blockType) {
       if (event.kind === 'tool_call') event.blockType = 'tool_use';
@@ -4614,10 +4709,12 @@ async function runSelfTest() {
     assert(prov.lineIndex === 42, 'preserves lineIndex');
     assert(prov.contentHash16.length === 16, 'contentHash16 is 16 chars');
     assert(/^[0-9a-f]{16}$/.test(prov.contentHash16), 'contentHash16 is valid hex');
+    assert(prov.pointer === `session-123/42#${prov.contentHash16}`, 'pointer string is well-formed');
 
     // Deterministic
     const prov2 = computeProvenance('session-123', 42, 'test text');
     assert(prov.contentHash16 === prov2.contentHash16, 'provenance is deterministic');
+    assert(prov.pointer === prov2.pointer, 'pointer is deterministic');
   }
 
   // Test: Extended Redaction Patterns

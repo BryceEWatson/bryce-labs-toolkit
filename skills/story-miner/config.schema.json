@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/BryceEWatson/bryce-labs-toolkit/skills/story-miner/config.schema.json",
   "title": "Story Miner Configuration",
-  "description": "Configuration schema for the story-miner skill that extracts user stories from Claude conversation logs",
+  "description": "Configuration schema for the story-miner skill that mines Claude Code session history for publishable development stories",
   "type": "object",
   "required": ["logGlob", "outputDir", "redactPatterns", "preprocessor", "storyMiner"],
   "additionalProperties": false,
@@ -188,7 +188,7 @@
             "mode": {
               "type": "string",
               "description": "Failure detection sensitivity mode",
-              "enum": ["strict", "moderate", "permissive"],
+              "enum": ["strict", "balanced", "heuristic"],
               "default": "strict"
             }
           }
