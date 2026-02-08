@@ -1,0 +1,318 @@
+{
+  "_fixture": {
+    "name": "local-sample-fixture-2",
+    "version": "1.0.0",
+    "purpose": "Test deduplication of same-incident excerpts and tool_use/tool_result transaction handling",
+    "tests": ["dedupe-same-incident", "tool-transaction-coherence", "provenance-pointer-stability"]
+  },
+  "metadata": {
+    "projectSlug": "c--Users-REDACTED-Projects-sample-app",
+    "preprocessorVersion": "1.0.0-fixture",
+    "generatedAt": "2026-02-07T00:00:00.000Z",
+    "runScope": "full",
+    "logCount": 2,
+    "eventCount": 38
+  },
+  "sessions": [
+    {
+      "sessionId": "fixture-session-ddd444",
+      "filePath": "[REDACTED]/.claude/projects/c--Users-REDACTED-Projects-sample-app/fixture-session-ddd444.jsonl",
+      "firstTimestamp": "2026-01-25T15:00:00.000Z",
+      "lastTimestamp": "2026-01-25T16:30:00.000Z",
+      "taskPreview": "Fix the extractText function that crashes on array content blocks",
+      "toolNames": ["Read", "Grep", "Edit", "Bash"],
+      "kindsCount": { "user": 5, "assistant": 8, "tool_result": 7, "tool_call": 7 },
+      "totalEvents": 27,
+      "toolFailuresCount": 2,
+      "mode": "sampled",
+      "events": [
+        {
+          "index": 0,
+          "kind": "user",
+          "text": "The preprocessor crashes with 'applyRedaction is not a function' when processing some sessions. Fix it.",
+          "timestamp": "2026-01-25T15:00:00.000Z",
+          "lineHash": "d1b2c3d4e5f60001"
+        },
+        {
+          "index": 1,
+          "kind": "assistant",
+          "text": "Let me investigate the crash. I'll search for the `applyRedaction` function and its callers.",
+          "timestamp": "2026-01-25T15:01:00.000Z",
+          "lineHash": "d1b2c3d4e5f60002"
+        },
+        {
+          "index": 2,
+          "kind": "tool_call",
+          "toolName": "Grep",
+          "toolUseId": "toolu_fixture_010",
+          "text": "{\"pattern\": \"applyRedaction\", \"path\": \"skills/lessons-extractor/bin/\"}",
+          "_inputJson": "{\"pattern\": \"applyRedaction\", \"path\": \"skills/lessons-extractor/bin/\"}",
+          "timestamp": "2026-01-25T15:01:05.000Z",
+          "lineHash": "d1b2c3d4e5f60003"
+        },
+        {
+          "index": 3,
+          "kind": "tool_result",
+          "toolName": "Grep",
+          "toolUseId": "toolu_fixture_010",
+          "text": "skills/lessons-extractor/bin/lessons-preprocessor.cjs:340: function applyRedaction(text) {\nskills/lessons-extractor/bin/lessons-preprocessor.cjs:355: text = applyRedaction(extractText(raw));",
+          "exitCode": 0,
+          "timestamp": "2026-01-25T15:01:06.000Z",
+          "lineHash": "d1b2c3d4e5f60004"
+        },
+        {
+          "index": 4,
+          "kind": "tool_call",
+          "toolName": "Read",
+          "toolUseId": "toolu_fixture_011",
+          "text": "{\"file_path\": \"skills/lessons-extractor/bin/lessons-preprocessor.cjs\", \"offset\": 340, \"limit\": 30}",
+          "_inputJson": "{\"file_path\": \"skills/lessons-extractor/bin/lessons-preprocessor.cjs\", \"offset\": 340, \"limit\": 30}",
+          "timestamp": "2026-01-25T15:02:00.000Z",
+          "lineHash": "d1b2c3d4e5f60005"
+        },
+        {
+          "index": 5,
+          "kind": "tool_result",
+          "toolName": "Read",
+          "toolUseId": "toolu_fixture_011",
+          "text": "function applyRedaction(text) {\n  if (typeof text !== 'string') return text;\n  // ... applies regex patterns ...\n}\n\nfunction extractText(raw) {\n  if (Array.isArray(raw.content)) {\n    return raw.content; // BUG: returns array, not string\n  }\n  return raw.message?.content || raw.output || '';\n}",
+          "exitCode": 0,
+          "timestamp": "2026-01-25T15:02:01.000Z",
+          "lineHash": "d1b2c3d4e5f60006"
+        },
+        {
+          "index": 6,
+          "kind": "assistant",
+          "text": "I've confirmed the root cause. The `extractText()` function only type-checks `raw.content` (line 355) but returns `raw.message.content`, `tool_result.content`, and `raw.output` without checking if they're strings. When these are arrays (Claude's rich content blocks), `applyRedaction()` receives an array instead of a string and fails.\n\nThe fix is to add a coercion step that joins text blocks from arrays before returning.",
+          "timestamp": "2026-01-25T15:03:00.000Z",
+          "lineHash": "d1b2c3d4e5f60007",
+          "_storySignals": ["root_cause", "type_coercion_bug", "multi_format_handling"],
+          "_dedupeCluster": "extractText-array-content-bug"
+        },
+        {
+          "index": 7,
+          "kind": "tool_call",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_012",
+          "text": "{\"command\": \"node skills/lessons-extractor/bin/lessons-preprocessor.cjs --self-test\"}",
+          "_inputJson": "{\"command\": \"node skills/lessons-extractor/bin/lessons-preprocessor.cjs --self-test\"}",
+          "timestamp": "2026-01-25T15:10:00.000Z",
+          "lineHash": "d1b2c3d4e5f60008"
+        },
+        {
+          "index": 8,
+          "kind": "tool_result",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_012",
+          "text": "Exit code 1\nArray Content Handling (Failure Mode Fix):\n  [FAIL] event.text is a string - expected string, got object\n  [FAIL] text blocks joined correctly",
+          "exitCode": 1,
+          "isError": true,
+          "timestamp": "2026-01-25T15:10:05.000Z",
+          "lineHash": "d1b2c3d4e5f60009"
+        },
+        {
+          "index": 9,
+          "kind": "tool_call",
+          "toolName": "Edit",
+          "toolUseId": "toolu_fixture_013",
+          "text": "{\"file_path\": \"skills/lessons-extractor/bin/lessons-preprocessor.cjs\", \"old_string\": \"return raw.content;\", \"new_string\": \"return raw.content.filter(b => b.type === 'text').map(b => b.text).join('\\\\n');\"}",
+          "_inputJson": "{\"file_path\": \"skills/lessons-extractor/bin/lessons-preprocessor.cjs\", \"old_string\": \"return raw.content;\", \"new_string\": \"return raw.content.filter(b => b.type === 'text').map(b => b.text).join('\\\\n');\"}",
+          "timestamp": "2026-01-25T15:12:00.000Z",
+          "lineHash": "d1b2c3d4e5f60010"
+        },
+        {
+          "index": 10,
+          "kind": "tool_result",
+          "toolName": "Edit",
+          "toolUseId": "toolu_fixture_013",
+          "text": "Edit applied successfully.",
+          "exitCode": 0,
+          "timestamp": "2026-01-25T15:12:01.000Z",
+          "lineHash": "d1b2c3d4e5f60011"
+        },
+        {
+          "index": 11,
+          "kind": "tool_call",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_014",
+          "text": "{\"command\": \"node skills/lessons-extractor/bin/lessons-preprocessor.cjs --self-test\"}",
+          "_inputJson": "{\"command\": \"node skills/lessons-extractor/bin/lessons-preprocessor.cjs --self-test\"}",
+          "timestamp": "2026-01-25T15:13:00.000Z",
+          "lineHash": "d1b2c3d4e5f60012"
+        },
+        {
+          "index": 12,
+          "kind": "tool_result",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_014",
+          "text": "Results: 180 passed, 0 failed",
+          "exitCode": 0,
+          "timestamp": "2026-01-25T15:13:10.000Z",
+          "lineHash": "d1b2c3d4e5f60013"
+        },
+        {
+          "index": 13,
+          "kind": "assistant",
+          "text": "All tests pass now. The fix ensures `extractText()` always returns a string by joining text-type content blocks with newlines.",
+          "timestamp": "2026-01-25T15:14:00.000Z",
+          "lineHash": "d1b2c3d4e5f60014"
+        }
+      ],
+      "toolFailures": [
+        {
+          "eventIndex": 8,
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_012",
+          "exitCode": 1,
+          "isError": true,
+          "detectionTier": "A",
+          "patternMatched": "exitCode:1",
+          "inputSummary": "self-test run"
+        }
+      ],
+      "transactions": [
+        {
+          "toolUseId": "toolu_fixture_010",
+          "toolName": "Grep",
+          "state": "completed",
+          "callEventIndex": 2,
+          "resultEventIndex": 3,
+          "isFailure": false
+        },
+        {
+          "toolUseId": "toolu_fixture_011",
+          "toolName": "Read",
+          "state": "completed",
+          "callEventIndex": 4,
+          "resultEventIndex": 5,
+          "isFailure": false
+        },
+        {
+          "toolUseId": "toolu_fixture_012",
+          "toolName": "Bash",
+          "state": "failed",
+          "callEventIndex": 7,
+          "resultEventIndex": 8,
+          "isFailure": true,
+          "detectionTier": "A"
+        },
+        {
+          "toolUseId": "toolu_fixture_013",
+          "toolName": "Edit",
+          "state": "completed",
+          "callEventIndex": 9,
+          "resultEventIndex": 10,
+          "isFailure": false
+        },
+        {
+          "toolUseId": "toolu_fixture_014",
+          "toolName": "Bash",
+          "state": "completed",
+          "callEventIndex": 11,
+          "resultEventIndex": 12,
+          "isFailure": false
+        }
+      ],
+      "evidence": {
+        "sampleStrategy": "context+resolution+errors",
+        "contextWindow": [0, 1, 2, 3, 4, 5],
+        "resolutionWindow": [11, 12, 13],
+        "errorWindows": [7, 8, 9],
+        "importanceWindows": [6]
+      }
+    },
+    {
+      "sessionId": "fixture-session-eee555",
+      "filePath": "[REDACTED]/.claude/projects/c--Users-REDACTED-Projects-sample-app/fixture-session-eee555.jsonl",
+      "firstTimestamp": "2026-01-26T09:00:00.000Z",
+      "lastTimestamp": "2026-01-26T09:20:00.000Z",
+      "taskPreview": "Investigate why the preprocessor fails on some session logs",
+      "toolNames": ["Grep", "Read"],
+      "kindsCount": { "user": 2, "assistant": 3, "tool_result": 2, "tool_call": 2 },
+      "totalEvents": 11,
+      "toolFailuresCount": 0,
+      "mode": "sampled",
+      "events": [
+        {
+          "index": 0,
+          "kind": "user",
+          "text": "The preprocessor sometimes crashes with a type error. Can you look into it?",
+          "timestamp": "2026-01-26T09:00:00.000Z",
+          "lineHash": "e1b2c3d4e5f60001"
+        },
+        {
+          "index": 1,
+          "kind": "assistant",
+          "text": "This is the same issue we fixed yesterday - the `extractText()` function returns raw arrays when `content` contains rich content blocks instead of plain strings. The root cause was that `applyRedaction()` expected a string but received an array.\n\nThe fix was already applied: content blocks are now filtered for `type === 'text'` and joined with newlines before returning.",
+          "timestamp": "2026-01-26T09:01:00.000Z",
+          "lineHash": "e1b2c3d4e5f60002",
+          "_storySignals": ["root_cause", "same_incident_reference"],
+          "_dedupeCluster": "extractText-array-content-bug"
+        },
+        {
+          "index": 2,
+          "kind": "tool_call",
+          "toolName": "Grep",
+          "toolUseId": "toolu_fixture_020",
+          "text": "{\"pattern\": \"extractText\", \"path\": \"skills/lessons-extractor/bin/lessons-preprocessor.cjs\"}",
+          "_inputJson": "{\"pattern\": \"extractText\", \"path\": \"skills/lessons-extractor/bin/lessons-preprocessor.cjs\"}",
+          "timestamp": "2026-01-26T09:02:00.000Z",
+          "lineHash": "e1b2c3d4e5f60003"
+        },
+        {
+          "index": 3,
+          "kind": "tool_result",
+          "toolName": "Grep",
+          "toolUseId": "toolu_fixture_020",
+          "text": "skills/lessons-extractor/bin/lessons-preprocessor.cjs:355: function extractText(raw) {\nskills/lessons-extractor/bin/lessons-preprocessor.cjs:357:   return raw.content.filter(b => b.type === 'text').map(b => b.text).join('\\n');",
+          "exitCode": 0,
+          "timestamp": "2026-01-26T09:02:01.000Z",
+          "lineHash": "e1b2c3d4e5f60004"
+        },
+        {
+          "index": 4,
+          "kind": "assistant",
+          "text": "Confirmed - the fix is already in place. The `extractText()` function now correctly handles array content by filtering for text blocks and joining them. No further changes needed.",
+          "timestamp": "2026-01-26T09:03:00.000Z",
+          "lineHash": "e1b2c3d4e5f60005"
+        }
+      ],
+      "toolFailures": [],
+      "transactions": [
+        {
+          "toolUseId": "toolu_fixture_020",
+          "toolName": "Grep",
+          "state": "completed",
+          "callEventIndex": 2,
+          "resultEventIndex": 3,
+          "isFailure": false
+        }
+      ],
+      "evidence": {
+        "sampleStrategy": "all",
+        "contextWindow": [0, 1, 2, 3, 4],
+        "resolutionWindow": [],
+        "errorWindows": [],
+        "importanceWindows": [1]
+      }
+    }
+  ],
+  "summary": {
+    "totalSessions": 2,
+    "totalEvents": 38,
+    "totalToolFailures": 2,
+    "toolNameFrequency": {
+      "Grep": 2,
+      "Read": 1,
+      "Edit": 1,
+      "Bash": 2
+    },
+    "dedupeGroups": {
+      "extractText-array-content-bug": {
+        "sessionIds": ["fixture-session-ddd444", "fixture-session-eee555"],
+        "excerptCount": 2,
+        "note": "Both sessions discuss the same root cause (extractText returning arrays). Dedupe should merge these."
+      }
+    }
+  }
+}

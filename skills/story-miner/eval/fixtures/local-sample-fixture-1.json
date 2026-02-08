@@ -1,0 +1,273 @@
+{
+  "_fixture": {
+    "name": "local-sample-fixture-1",
+    "version": "1.0.0",
+    "purpose": "Test story-worthy excerpt extraction, generic-advice filtering, and secret redaction",
+    "tests": ["quote-provenance", "generic-filtering", "secret-leakage-redaction"]
+  },
+  "metadata": {
+    "projectSlug": "c--Users-REDACTED-Projects-sample-toolkit",
+    "preprocessorVersion": "1.0.0-fixture",
+    "generatedAt": "2026-02-07T00:00:00.000Z",
+    "runScope": "full",
+    "logCount": 3,
+    "eventCount": 42
+  },
+  "sessions": [
+    {
+      "sessionId": "fixture-session-aaa111",
+      "filePath": "[REDACTED]/.claude/projects/c--Users-REDACTED-Projects-sample-toolkit/fixture-session-aaa111.jsonl",
+      "firstTimestamp": "2026-01-20T10:00:00.000Z",
+      "lastTimestamp": "2026-01-20T10:45:00.000Z",
+      "taskPreview": "Fix the grep exit-code bug in lint-skills.sh that causes CI failures",
+      "toolNames": ["Bash", "Read", "Edit", "Grep"],
+      "kindsCount": { "user": 6, "assistant": 8, "tool_result": 5, "tool_call": 5 },
+      "totalEvents": 24,
+      "toolFailuresCount": 1,
+      "mode": "sampled",
+      "events": [
+        {
+          "index": 0,
+          "kind": "user",
+          "text": "Fix the grep exit-code bug in lint-skills.sh that causes CI failures",
+          "timestamp": "2026-01-20T10:00:00.000Z",
+          "lineHash": "a1b2c3d4e5f60001"
+        },
+        {
+          "index": 1,
+          "kind": "assistant",
+          "text": "Let me investigate the CI failure. I'll start by reading the lint script.",
+          "timestamp": "2026-01-20T10:00:30.000Z",
+          "lineHash": "a1b2c3d4e5f60002"
+        },
+        {
+          "index": 2,
+          "kind": "tool_call",
+          "toolName": "Read",
+          "toolUseId": "toolu_fixture_001",
+          "text": "{\"file_path\": \"tools/lint-skills.sh\"}",
+          "timestamp": "2026-01-20T10:00:31.000Z",
+          "lineHash": "a1b2c3d4e5f60003"
+        },
+        {
+          "index": 3,
+          "kind": "tool_result",
+          "toolName": "Read",
+          "toolUseId": "toolu_fixture_001",
+          "text": "#!/bin/bash\nset -euo pipefail\n# ... lines 1-54 ...\ngrep -r 'eval ' \"$skill_dir\"\ngrep -r '\\$(' \"$skill_dir\"\n# ... rest of script",
+          "exitCode": 0,
+          "timestamp": "2026-01-20T10:00:32.000Z",
+          "lineHash": "a1b2c3d4e5f60004"
+        },
+        {
+          "index": 4,
+          "kind": "assistant",
+          "text": "Found the root cause. The `grep` commands on lines 55-56 use `set -e`, so when grep finds zero matches it returns exit code 1, which aborts the entire script. The fix is to append `|| true` to each grep so a zero-match result is not treated as a failure.\n\nThis is a subtle interaction: `grep` returns 1 for 'no matches' (not just errors), and `set -e` interprets any non-zero exit as a script error.",
+          "timestamp": "2026-01-20T10:01:00.000Z",
+          "lineHash": "a1b2c3d4e5f60005",
+          "_storySignals": ["root_cause", "subtle_interaction", "tool_behavior"]
+        },
+        {
+          "index": 5,
+          "kind": "tool_call",
+          "toolName": "Edit",
+          "toolUseId": "toolu_fixture_002",
+          "text": "{\"file_path\": \"tools/lint-skills.sh\", \"old_string\": \"grep -r 'eval '\", \"new_string\": \"grep -r 'eval ' || true\"}",
+          "timestamp": "2026-01-20T10:01:30.000Z",
+          "lineHash": "a1b2c3d4e5f60006"
+        },
+        {
+          "index": 6,
+          "kind": "tool_result",
+          "toolName": "Edit",
+          "toolUseId": "toolu_fixture_002",
+          "text": "Edit applied successfully.",
+          "exitCode": 0,
+          "timestamp": "2026-01-20T10:01:31.000Z",
+          "lineHash": "a1b2c3d4e5f60007"
+        }
+      ],
+      "toolFailures": [],
+      "evidence": {
+        "sampleStrategy": "context+resolution",
+        "contextWindow": [0, 1, 2, 3],
+        "resolutionWindow": [4, 5, 6],
+        "errorWindows": [],
+        "importanceWindows": [4]
+      }
+    },
+    {
+      "sessionId": "fixture-session-bbb222",
+      "filePath": "[REDACTED]/.claude/projects/c--Users-REDACTED-Projects-sample-toolkit/fixture-session-bbb222.jsonl",
+      "firstTimestamp": "2026-01-21T14:00:00.000Z",
+      "lastTimestamp": "2026-01-21T14:05:00.000Z",
+      "taskPreview": "Add logging to the data pipeline and run the tests",
+      "toolNames": ["Bash"],
+      "kindsCount": { "user": 2, "assistant": 2, "tool_result": 1, "tool_call": 1 },
+      "totalEvents": 6,
+      "toolFailuresCount": 0,
+      "mode": "sampled",
+      "events": [
+        {
+          "index": 0,
+          "kind": "user",
+          "text": "Add logging to the data pipeline and run the tests",
+          "timestamp": "2026-01-21T14:00:00.000Z",
+          "lineHash": "b1b2c3d4e5f60001"
+        },
+        {
+          "index": 1,
+          "kind": "assistant",
+          "text": "I'll add logging statements and then run the test suite to verify everything passes.",
+          "timestamp": "2026-01-21T14:00:30.000Z",
+          "lineHash": "b1b2c3d4e5f60002",
+          "_storySignals": []
+        },
+        {
+          "index": 2,
+          "kind": "tool_call",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_003",
+          "text": "{\"command\": \"npm test\"}",
+          "timestamp": "2026-01-21T14:03:00.000Z",
+          "lineHash": "b1b2c3d4e5f60003"
+        },
+        {
+          "index": 3,
+          "kind": "tool_result",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_003",
+          "text": "All 14 tests passed.",
+          "exitCode": 0,
+          "timestamp": "2026-01-21T14:04:00.000Z",
+          "lineHash": "b1b2c3d4e5f60004"
+        },
+        {
+          "index": 4,
+          "kind": "assistant",
+          "text": "Done. Added logging and all tests pass.",
+          "timestamp": "2026-01-21T14:04:30.000Z",
+          "lineHash": "b1b2c3d4e5f60005",
+          "_storySignals": []
+        }
+      ],
+      "toolFailures": [],
+      "evidence": {
+        "sampleStrategy": "all",
+        "contextWindow": [0, 1, 2, 3, 4],
+        "resolutionWindow": [],
+        "errorWindows": [],
+        "importanceWindows": []
+      }
+    },
+    {
+      "sessionId": "fixture-session-ccc333",
+      "filePath": "[REDACTED]/.claude/projects/c--Users-REDACTED-Projects-sample-toolkit/fixture-session-ccc333.jsonl",
+      "firstTimestamp": "2026-01-22T09:00:00.000Z",
+      "lastTimestamp": "2026-01-22T09:30:00.000Z",
+      "taskPreview": "Configure the API integration with the external service",
+      "toolNames": ["Bash", "Write", "Read"],
+      "kindsCount": { "user": 3, "assistant": 4, "tool_result": 3, "tool_call": 3 },
+      "totalEvents": 12,
+      "toolFailuresCount": 1,
+      "mode": "sampled",
+      "events": [
+        {
+          "index": 0,
+          "kind": "user",
+          "text": "Configure the API integration with the external service",
+          "timestamp": "2026-01-22T09:00:00.000Z",
+          "lineHash": "c1b2c3d4e5f60001"
+        },
+        {
+          "index": 1,
+          "kind": "assistant",
+          "text": "I'll set up the configuration file for the API integration.",
+          "timestamp": "2026-01-22T09:01:00.000Z",
+          "lineHash": "c1b2c3d4e5f60002"
+        },
+        {
+          "index": 2,
+          "kind": "tool_call",
+          "toolName": "Write",
+          "toolUseId": "toolu_fixture_004",
+          "text": "{\"file_path\": \"config/api.json\", \"content\": \"{\\\"endpoint\\\": \\\"https://api.example.com/v2\\\", \\\"api_key\\\": \\\"sk-FIXTURE-REDACTED-KEY-VALUE-000\\\", \\\"secret\\\": \\\"FIXTURE-REDACTED-SECRET-VALUE\\\"}\"}",
+          "timestamp": "2026-01-22T09:02:00.000Z",
+          "lineHash": "c1b2c3d4e5f60003",
+          "_redactionRequired": true,
+          "_note": "INTENTIONAL: This event contains fixture secret-like values that must be caught by redaction. Eval should verify these are redacted in output."
+        },
+        {
+          "index": 3,
+          "kind": "tool_result",
+          "toolName": "Write",
+          "toolUseId": "toolu_fixture_004",
+          "text": "File created successfully at: config/api.json",
+          "exitCode": 0,
+          "timestamp": "2026-01-22T09:02:01.000Z",
+          "lineHash": "c1b2c3d4e5f60004"
+        },
+        {
+          "index": 4,
+          "kind": "tool_call",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_005",
+          "text": "{\"command\": \"curl -H 'Authorization: Bearer sk-FIXTURE-REDACTED-KEY-VALUE-000' https://api.example.com/v2/health\"}",
+          "timestamp": "2026-01-22T09:05:00.000Z",
+          "lineHash": "c1b2c3d4e5f60005",
+          "_redactionRequired": true
+        },
+        {
+          "index": 5,
+          "kind": "tool_result",
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_005",
+          "text": "Exit code 1\ncurl: (6) Could not resolve host: api.example.com",
+          "exitCode": 1,
+          "isError": true,
+          "timestamp": "2026-01-22T09:05:02.000Z",
+          "lineHash": "c1b2c3d4e5f60006"
+        },
+        {
+          "index": 6,
+          "kind": "assistant",
+          "text": "The API endpoint is not reachable. Let me check the configuration and try a different approach.",
+          "timestamp": "2026-01-22T09:06:00.000Z",
+          "lineHash": "c1b2c3d4e5f60007",
+          "_storySignals": []
+        }
+      ],
+      "toolFailures": [
+        {
+          "eventIndex": 5,
+          "toolName": "Bash",
+          "toolUseId": "toolu_fixture_005",
+          "exitCode": 1,
+          "isError": true,
+          "detectionTier": "A",
+          "patternMatched": "exitCode:1",
+          "inputSummary": "curl health check"
+        }
+      ],
+      "evidence": {
+        "sampleStrategy": "context+resolution+errors",
+        "contextWindow": [0, 1, 2, 3],
+        "resolutionWindow": [5, 6],
+        "errorWindows": [4, 5, 6],
+        "importanceWindows": []
+      }
+    }
+  ],
+  "summary": {
+    "totalSessions": 3,
+    "totalEvents": 42,
+    "totalToolFailures": 1,
+    "toolNameFrequency": {
+      "Bash": 3,
+      "Read": 1,
+      "Edit": 1,
+      "Write": 1,
+      "Grep": 0
+    }
+  }
+}
