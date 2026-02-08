@@ -4760,6 +4760,58 @@ async function runSelfTest() {
     assert(!isMinerSession(normalEvents), 'allows normal sessions');
   }
 
+  // Test: Tail Window Line Index Correctness (story-miner)
+  console.log('\nTail Window Line Indices (story-miner):');
+  {
+    // Create a temp JSONL file with known lines and verify tail window indices
+    const tempFile = path.join(process.cwd(), '.test-tail-lines-' + Date.now() + '.jsonl');
+    const lines = [];
+    for (let i = 0; i < 10; i++) {
+      // Use top-level content field (not message.content) to avoid normalizeToolCalls string filter issue
+      lines.push(JSON.stringify({ type: 'user', content: `Line ${i} content padding to ensure sufficient length` }));
+    }
+    fs.writeFileSync(tempFile, lines.join('\n') + '\n');
+
+    try {
+      // Read the full file to know byte offsets
+      const fileContent = fs.readFileSync(tempFile, 'utf-8');
+      const fileLines = fileContent.split('\n').filter(Boolean);
+
+      // Compute byte offset to middle of line 5 (guaranteed mid-line)
+      let byteOffset = 0;
+      for (let i = 0; i < 5; i++) {
+        byteOffset += Buffer.byteLength(fileLines[i], 'utf-8') + 1; // +1 for \n
+      }
+      const midLineOffset = byteOffset + 10; // 10 bytes into line 5
+
+      // Verify countLinesUpTo returns 5 (5 newlines before midLineOffset)
+      const lineCount = countLinesUpTo(tempFile, midLineOffset);
+      assert(lineCount === 5, `countLinesUpTo at mid-line-5 returns ${lineCount} (expected 5)`);
+
+      // Read tail from mid-line position
+      const { regexes: noRedact } = compileRedactions([]);
+      const tailResult = await readTailWindow(tempFile, midLineOffset, 100000, 100, noRedact, lineCount);
+
+      // Line 5 should be skipped (partial), first event should be line 6
+      assert(tailResult.events.length > 0, 'tail window has events');
+      assert(tailResult.events[0]._sourceLineIndex === 6, `first tail event lineIndex is ${tailResult.events[0]._sourceLineIndex} (expected 6)`);
+
+      // Verify sequential indices
+      for (let i = 1; i < tailResult.events.length; i++) {
+        const prev = tailResult.events[i - 1]._sourceLineIndex;
+        const curr = tailResult.events[i]._sourceLineIndex;
+        assert(curr > prev, `tail event indices are sequential: ${prev} < ${curr}`);
+      }
+
+      // Also test reading from exact line boundary (start of line 5)
+      const tailFromBoundary = await readTailWindow(tempFile, byteOffset, 100000, 100, noRedact, 5);
+      assert(tailFromBoundary.events.length > 0, 'boundary tail has events');
+      assert(tailFromBoundary.events[0]._sourceLineIndex === 5, `boundary first event lineIndex is ${tailFromBoundary.events[0]._sourceLineIndex} (expected 5)`);
+    } finally {
+      fs.rmSync(tempFile, { force: true });
+    }
+  }
+
   // Test: Output Scanner
   console.log('\nOutput Scanner (story-miner):');
   {
@@ -4925,7 +4977,8 @@ async function main() {
     // Handle --scan-dir mode (story-miner addition)
     if (opts.scanDir) {
       const scanPath = path.isAbsolute(opts.scanDir) ? opts.scanDir : path.join(repoRoot, opts.scanDir);
-      const result = scanDirectory(scanPath, [], config.bannedPhrases || DEFAULT_BANNED_PHRASES);
+      const bannedPhrases = (config.storyMiner && config.storyMiner.bannedPhrases) || DEFAULT_BANNED_PHRASES;
+      const result = scanDirectory(scanPath, [], bannedPhrases);
       console.log(JSON.stringify(result, null, 2));
       if (!result.clean) {
         log('error', `Scanner found ${result.errorCount} error(s) and ${result.warnCount} warning(s)`);
@@ -4939,7 +4992,7 @@ async function main() {
 
     // Handle --dedupe mode (story-miner addition)
     if (opts.dedupe) {
-      const dedupeConfig = config.dedupe || {};
+      const dedupeConfig = (config.storyMiner && config.storyMiner.dedupe) || {};
       runDedupeMode(outputDir, dedupeConfig);
       process.exit(0);
     }
