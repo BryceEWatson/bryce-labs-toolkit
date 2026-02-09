@@ -1,7 +1,7 @@
 ---
 description: Generate implementation plan with automated review loop
 argument-hint: "<path-to-spec.md>"
-allowed-tools: Read, Grep, Glob, WebSearch, Write, Bash(git status, git log *, git diff *, git branch *, git show *), Task, AskUserQuestion
+allowed-tools: Read, Grep, Glob, WebSearch, Write, Bash(git status, git log *, git diff *, git branch *, git show *, code *), Task, AskUserQuestion
 ---
 
 spec-workflow v1.0.0 · Plan
@@ -180,63 +180,35 @@ Print the following IN ORDER:
   - Terminal (bash): `cat docs/plans/PLAN-{FEATURE_NAME}.md`
   - Terminal (CMD): `type docs\plans\PLAN-{FEATURE_NAME}.md`
 
-**4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Use the modal-safe plaintext
-template below **verbatim** (same lines and sections), only substituting values in braces.
-Do NOT omit sections even if empty — write "None" or "N/A". If a value cannot be derived
-(e.g., coverage counts), write "Unknown" rather than omitting the field.
+**4.** Then IMMEDIATELY call the AskUserQuestion tool.
+Keep the question text SHORT (max 5 lines). Move all details into option descriptions.
 
-MODAL-SAFE RULES (apply to every AskUserQuestion question text):
-- NO markdown headings (no #, ##)
-- NO markdown tables (no | … |)
-- NO code fences (no ```)
-- NO bold markers (no **text**)
-- Keep lines <= 90 chars; use blank lines to separate sections
-- Prefer key/value lines, short bullets, simple separators like "----"
+QUESTION TEXT (substitute values in braces):
 
-TEMPLATE (use verbatim, substitute values in braces):
-
---------------------------------
 PLAN GATE
-
-Plan:   docs/plans/PLAN-{FEATURE_NAME}.md
-Spec:   {SPEC_PATH}
+Plan: docs/plans/PLAN-{FEATURE_NAME}.md
 Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md
+Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+Choose an action.
 
-Internal review:
-- Iterations: {ITER_COUNT}
-- Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
-- Summary: {LATEST_SUMMARY}
+OPTIONS (each option MUST have both label and description):
 
-Top tasks (max 10):
-- TASK-001: {TITLE}
-- TASK-002: {TITLE}
-{...}
-{If >10: "...and N more"}
+- Label: "Approve plan"
+  Description: "Reviewer: {LATEST_SUMMARY}. Plan approved and finalized. Run /spec-workflow:implement to begin implementation. Coverage: REQ {REQ_MAPPED}/{REQ_TOTAL}, AC {AC_MAPPED}/{AC_TOTAL}, NFR {NFR_MAPPED}/{NFR_TOTAL}. Tasks: {TASK_COUNT} total."
 
-Coverage:
-REQ {REQ_MAPPED}/{REQ_TOTAL}, AC {AC_MAPPED}/{AC_TOTAL}, NFR {NFR_MAPPED}/{NFR_TOTAL}
+- Label: "Request revisions"
+  Description: "Revise the plan based on feedback, re-run plan-reviewer, then re-present this gate."
 
-Quick open:
-- VS Code: code docs/plans/PLAN-{FEATURE_NAME}.md
-- Bash:    head -120 docs/plans/PLAN-{FEATURE_NAME}.md
-- CMD:     type docs/plans/PLAN-{FEATURE_NAME}.md
-- PS:      powershell -NoProfile -Command "Get-Content 'docs/plans/PLAN-{FEATURE_NAME}.md' -TotalCount 120"
+- Label: "Review now (open in VS Code)"
+  Description: "Opens plan and review log in VS Code for review. This gate re-appears after. Plan: docs/plans/PLAN-{FEATURE_NAME}.md. Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md. Fallback (CMD): type docs\plans\PLAN-{FEATURE_NAME}.md"
 
-Choose:
-- Approve plan -> finalized, proceed with /spec-workflow:implement
-- Request revisions -> revise plan + re-review + show this gate again
-- Done -> plan saved, resume later: /spec-workflow:implement {PLAN_PATH}
---------------------------------
-
-Options (buttons):
-- "Approve plan"
-- "Request revisions"
-- "Done — review later"
+- Label: "Done — review later"
+  Description: "Plan saved. Resume later with: /spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md"
 
 **5. Response handling:**
 - User selects "Approve plan" → print: "Plan approved. Run `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md` to implement."
 - User selects "Request revisions" → revise plan, re-save, re-run plan-reviewer, re-present gate.
+- User selects "Review now" → run `code "docs/plans/PLAN-{FEATURE_NAME}.md"` and `code "docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md"` via Bash. If `code` command fails, print fallback: `type docs\plans\PLAN-{FEATURE_NAME}.md` (CMD) or `cat docs/plans/PLAN-{FEATURE_NAME}.md` (bash). Then re-present the same AskUserQuestion gate (do NOT advance).
 - User selects "Done" → print: "Plan saved. Resume with `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md`."
 - User provides free text containing revision instructions → treat as "Request revisions".
 - User provides free text containing "stop", "pause", or "done" → treat as "Done".

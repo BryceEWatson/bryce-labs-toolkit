@@ -67,41 +67,22 @@ If `--dry-run` is in `$ARGUMENTS`:
 ## Step 4: Confirmation
 
 If `--force` is NOT in `$ARGUMENTS`, use AskUserQuestion to confirm.
+Keep the question text SHORT (max 5 lines). Move file list into option description.
 
-The question text MUST use the modal-safe plaintext template below **verbatim**
-(same lines and sections), only substituting the file list.
+QUESTION TEXT (substitute values in braces):
 
-MODAL-SAFE RULES (apply to every AskUserQuestion question text):
-- NO markdown headings (no #, ##)
-- NO markdown tables (no | … |)
-- NO code fences (no ```)
-- NO bold markers (no **text**)
-- Keep lines <= 90 chars; use blank lines to separate sections
-
-TEMPLATE (use verbatim, substitute values in braces):
-
---------------------------------
 SPEC-WORKFLOW RESET
+Mode: {all | feature <name>}
+Files: {N} (preview printed above)
+Choose an action.
 
-This will delete the following files:
-{one file per line}
+OPTIONS (each option MUST have both label and description):
 
-Notes:
-- .gitkeep files will be preserved
-- Directories will not be removed
+- Label: "Delete all listed files"
+  Description: "Permanently deletes: {FILE_LIST_ONE_PER_LINE_MAX_25}. {If >25: '...and N more'}. .gitkeep files preserved. Directories not removed. Quick rerun: /spec-workflow:reset --force"
 
-Quick rerun:
-- Dry run:  /spec-workflow:reset --dry-run
-- Force:    /spec-workflow:reset --force
-
-Choose:
-- Delete all listed files -> permanently deletes them
-- Cancel -> deletes nothing
---------------------------------
-
-Options (buttons):
-- "Delete all listed files"
-- "Cancel"
+- Label: "Cancel"
+  Description: "No files will be deleted."
 
 If user selects "Cancel" or provides free text that isn't clearly "delete" or "yes":
 - Print "Aborted. No files were deleted."

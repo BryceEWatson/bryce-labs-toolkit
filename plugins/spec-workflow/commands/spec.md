@@ -1,7 +1,7 @@
 ---
 description: "Run the full spec-driven development pipeline: Spec → Plan → Implement"
 argument-hint: "<feature-description>"
-allowed-tools: Read, Grep, Glob, WebSearch, Write, AskUserQuestion, Task
+allowed-tools: Read, Grep, Glob, WebSearch, Write, AskUserQuestion, Task, Bash(code *)
 ---
 
 ORCH_SENTINEL__9F2E — If you see this line, print it verbatim before doing anything else.
@@ -175,59 +175,35 @@ Print:
   - First 120 lines (bash): `head -120 {SPEC_PATH}`
   - First 120 lines (CMD): `powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"`
 
-**4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Use the modal-safe plaintext
-template below **verbatim** (same lines and sections), only substituting values in braces.
-Do NOT omit sections even if empty — write "None" or "N/A". If a value cannot be derived
-(e.g., coverage counts), write "Unknown" rather than omitting the field.
+**4.** Then IMMEDIATELY call the AskUserQuestion tool.
+Keep the question text SHORT (max 5 lines). Move all details into option descriptions.
 
-MODAL-SAFE RULES (apply to every AskUserQuestion question text):
-- NO markdown headings (no #, ##)
-- NO markdown tables (no | … |)
-- NO code fences (no ```)
-- NO bold markers (no **text**)
-- Keep lines <= 90 chars; use blank lines to separate sections
-- Prefer key/value lines, short bullets, simple separators like "----"
+QUESTION TEXT (substitute values in braces):
 
-TEMPLATE (use verbatim, substitute values in braces):
-
---------------------------------
 SPEC GATE
-
-Spec:   {SPEC_PATH}
+Spec: {SPEC_PATH}
 Review: docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md
+Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+Choose an action.
 
-Internal review:
-- Iterations: {ITER_COUNT}
-- Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
-- Summary: {LATEST_SUMMARY}
+OPTIONS (each option MUST have both label and description):
 
-Overview (first paragraph):
-{OVERVIEW_FIRST_PARAGRAPH_MAX_10_LINES}
+- Label: "Approve spec — continue to planning"
+  Description: "Reviewer: {LATEST_SUMMARY}. Approving finalizes the spec and proceeds to Phase 2 (plan generation). Overview: {OVERVIEW_FIRST_PARAGRAPH_TRUNCATED_TO_3_LINES}"
 
-Gaps:
-{OPEN_QUESTIONS_PLUS_SHOULD_FIX_ITEMS_OR_"None"}
+- Label: "Request revisions"
+  Description: "Revise the spec based on feedback, re-run internal review, then re-present this gate. Gaps: {OPEN_QUESTIONS_PLUS_SHOULD_FIX_OR_None}"
 
-Quick open:
-- VS Code: code {SPEC_PATH}
-- Bash:    head -120 {SPEC_PATH}
-- CMD:     type {SPEC_PATH}
-- PS:      powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"
+- Label: "Review now (open in VS Code)"
+  Description: "Opens spec and review log in VS Code for review. This gate re-appears after. Spec: {SPEC_PATH}. Review: docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md. Fallback (CMD): type {SPEC_PATH}"
 
-Choose:
-- Approve spec -> continue to planning now
-- Request revisions -> revise spec + re-review + show this gate again
-- Stop pipeline -> resume later: /spec-workflow:plan {SPEC_PATH}
---------------------------------
-
-Options (buttons):
-- "Approve spec — continue to planning"
-- "Request revisions"
-- "Stop pipeline"
+- Label: "Stop pipeline"
+  Description: "Pauses the pipeline. Resume later with: /spec-workflow:plan {SPEC_PATH}"
 
 **5. Response handling:**
 - User selects "Approve spec" → proceed to Phase 2.
 - User selects "Request revisions" → revise spec, re-save, re-run spec-reviewer, re-present gate.
+- User selects "Review now" → run `code "{SPEC_PATH}"` and `code "docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md"` via Bash. If `code` command fails, print fallback: `type {SPEC_PATH}` (CMD) or `cat {SPEC_PATH}` (bash). Then re-present the same AskUserQuestion gate (do NOT advance phases).
 - User selects "Stop pipeline" → print: "Pipeline paused. Resume with `/spec-workflow:plan {SPEC_PATH}`."
 - User provides free text containing revision instructions (e.g., "change REQ-003 to...") → treat as "Request revisions".
 - User provides free text containing "stop" or "pause" → treat as "Stop pipeline".
@@ -344,63 +320,39 @@ Print:
   - Terminal (bash): `cat {PLAN_PATH}`
   - Terminal (CMD): `type {PLAN_PATH}`
 
-**4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Use the modal-safe plaintext
-template below **verbatim** (same lines and sections), only substituting values in braces.
-Do NOT omit sections even if empty — write "None" or "N/A". If a value cannot be derived
-(e.g., coverage counts), write "Unknown" rather than omitting the field.
+**4.** Then IMMEDIATELY call the AskUserQuestion tool.
+Keep the question text SHORT (max 5 lines). Move all details into option descriptions.
 
-MODAL-SAFE RULES (apply to every AskUserQuestion question text):
-- NO markdown headings (no #, ##)
-- NO markdown tables (no | … |)
-- NO code fences (no ```)
-- NO bold markers (no **text**)
-- Keep lines <= 90 chars; use blank lines to separate sections
-- Prefer key/value lines, short bullets, simple separators like "----"
+QUESTION TEXT (substitute values in braces):
 
-TEMPLATE (use verbatim, substitute values in braces):
-
---------------------------------
 PLAN GATE
-
-Plan:   {PLAN_PATH}
-Spec:   {SPEC_PATH}
+Plan: {PLAN_PATH}
 Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md
+Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+Choose an action.
 
-Internal review:
-- Iterations: {ITER_COUNT}
-- Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
-- Summary: {LATEST_SUMMARY}
+OPTIONS (each option MUST have both label and description):
 
-Top tasks (max 10):
-- TASK-001: {TITLE}
-- TASK-002: {TITLE}
-{...}
-{If >10: "...and N more"}
+- Label: "Approve plan — continue to implementation"
+  Description: "Reviewer: {LATEST_SUMMARY}. Approving finalizes the plan and proceeds to Phase 3 (implementation + PR). Coverage: REQ {REQ_MAPPED}/{REQ_TOTAL}, AC {AC_MAPPED}/{AC_TOTAL}, NFR {NFR_MAPPED}/{NFR_TOTAL}. Tasks: {TASK_COUNT} total."
 
-Coverage:
-REQ {REQ_MAPPED}/{REQ_TOTAL}, AC {AC_MAPPED}/{AC_TOTAL}, NFR {NFR_MAPPED}/{NFR_TOTAL}
+- Label: "Request revisions"
+  Description: "Revise the plan based on feedback, re-run plan-reviewer, then re-present this gate."
 
-Quick open:
-- VS Code: code {PLAN_PATH}
-- Bash:    head -120 {PLAN_PATH}
-- CMD:     type {PLAN_PATH}
-- PS:      powershell -NoProfile -Command "Get-Content '{PLAN_PATH}' -TotalCount 120"
+- Label: "Review now (open in VS Code)"
+  Description: "Opens plan and review log in VS Code for review. This gate re-appears after. Plan: {PLAN_PATH}. Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md. Fallback (CMD): type {PLAN_PATH}"
 
-Choose:
-- Approve plan -> continue to implementation now
-- Request revisions -> revise plan + re-review + show this gate again
-- Stop pipeline -> resume later: /spec-workflow:implement {PLAN_PATH}
---------------------------------
-
-Options (buttons):
-- "Approve plan — continue to implementation"
-- "Request revisions"
-- "Stop pipeline"
+- Label: "Stop pipeline"
+  Description: "Pauses the pipeline. Resume later with: /spec-workflow:implement {PLAN_PATH}"
 
 **5. Response handling:**
-Same rules as Phase 1 Gate. If "Stop", print: "Pipeline paused. Resume with `/spec-workflow:implement {PLAN_PATH}`."
-All other free text (including "yes", "ok", "approve") re-presents AskUserQuestion.
+- User selects "Approve plan" → proceed to Phase 3.
+- User selects "Request revisions" → revise plan, re-save, re-run plan-reviewer, re-present gate.
+- User selects "Review now" → run `code "{PLAN_PATH}"` and `code "docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md"` via Bash. If `code` command fails, print fallback: `type {PLAN_PATH}` (CMD) or `cat {PLAN_PATH}` (bash). Then re-present the same AskUserQuestion gate (do NOT advance phases).
+- User selects "Stop pipeline" → print: "Pipeline paused. Resume with `/spec-workflow:implement {PLAN_PATH}`."
+- User provides free text containing revision instructions → treat as "Request revisions".
+- User provides free text containing "stop" or "pause" → treat as "Stop pipeline".
+- **All other free text** (including "yes", "ok", "approve") → re-present AskUserQuestion. Only explicit button selection advances the pipeline.
 
 ────────────────────────────────────────
 PHASE 3: IMPLEMENT + PR REVIEW
