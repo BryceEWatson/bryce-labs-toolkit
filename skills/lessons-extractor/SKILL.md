@@ -72,6 +72,17 @@ Config file location: `.claude/skills/lessons-extractor/config.json` (relative t
 
 If you encounter ANY friction that tempts you to write a script, STOP and use these alternatives.
 
+### Reset / Clear
+
+Clear all output artifacts to start from scratch:
+
+- **Skill flag:** `/lessons-extractor --clear` (clears then regenerates)
+- **Standalone script (Bash):** `./tools/lessons-extractor-reset.sh [--dry-run] [--force] [--output <dir>]`
+- **Standalone script (CMD):** `tools\lessons-extractor-reset.cmd [--dry-run] [--force] [--output <dir>]`
+
+The scripts support `--dry-run` (preview only) and `--force` (skip confirmation).
+They use the preprocessor's `--clear` internally for consistency.
+
 ### Step 0: Handle --clear (if requested)
 
 If `$ARGUMENTS` contains `--clear`:

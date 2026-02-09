@@ -78,6 +78,17 @@ Access via `$ARGUMENTS`:
 
 If you encounter ANY friction that tempts you to write a script, STOP and use these alternatives.
 
+### Reset / Clear
+
+Clear all output artifacts to start from scratch:
+
+- **Skill flag:** `/story-miner --clear` (clears then regenerates)
+- **Standalone script (Bash):** `./tools/story-miner-reset.sh [--dry-run] [--force] [--output <dir>]`
+- **Standalone script (CMD):** `tools\story-miner-reset.cmd [--dry-run] [--force] [--output <dir>]`
+
+The scripts support `--dry-run` (preview only) and `--force` (skip confirmation).
+They use the preprocessor's `--clear` internally for consistency.
+
 ### Step 0: Handle --clear (if requested)
 
 If `$ARGUMENTS` contains `--clear`:
