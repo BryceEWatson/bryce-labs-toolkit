@@ -4,21 +4,6 @@ description: Reviews specifications for completeness and testability. Independen
 context: fork
 agent: general-purpose
 tools: Read
-hooks:
-  Stop:
-    - type: prompt
-      prompt: |
-        Evaluate if the spec review is complete. Check: $ARGUMENTS
-
-        Review the spec-reviewer output. Determine:
-        1. Did it check all requirements for atomicity and testability?
-        2. Did it verify RFC 2119 keyword usage (SHALL/SHOULD/MAY)?
-        3. Did it check that every requirement has at least one acceptance criterion?
-        4. Is the verdict clear (APPROVED or ISSUES IDENTIFIED)?
-
-        If issues found: {"decision": "block", "reason": "Issues found: [summary]. Revise spec."}
-        If approved: {"decision": "approve", "reason": "Spec validated."}
-        If review incomplete: {"decision": "block", "reason": "Continue reviewing."}
 ---
 
 You are an **independent reviewer** validating specification quality.

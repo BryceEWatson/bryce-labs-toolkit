@@ -84,9 +84,8 @@ echo "  Cache:   $CACHE_DIR"
 echo "  Version: $VERSION"
 echo ""
 
-# Atomic-ish copy: write to temp dir, then rename
+# Atomic-ish copy: write to temp dir, verify, then swap
 rm -rf "$CACHE_TMP"
-rm -rf "$CACHE_DIR"
 mkdir -p "$(dirname "$CACHE_DIR")"
 cp -r "$SOURCE" "$CACHE_TMP"
 
@@ -104,8 +103,15 @@ if ! grep -q "ORCH_SENTINEL" "$CACHE_TMP/commands/spec.md" 2>/dev/null; then
   exit 1
 fi
 
-# Rename temp to final
+# All verified — now replace the live cache
+# Rename old to backup, swap new in, then delete backup
+CACHE_BAK="${CACHE_DIR}.__bak"
+rm -rf "$CACHE_BAK"
+if [ -d "$CACHE_DIR" ]; then
+  mv "$CACHE_DIR" "$CACHE_BAK"
+fi
 mv "$CACHE_TMP" "$CACHE_DIR"
+rm -rf "$CACHE_BAK"
 
 echo "Verifying sentinel in cached spec.md:"
 grep "ORCH_SENTINEL" "$CACHE_DIR/commands/spec.md"

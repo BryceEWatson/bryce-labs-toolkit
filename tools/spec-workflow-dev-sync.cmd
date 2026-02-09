@@ -40,14 +40,14 @@ set "CACHE_PARENT=%USERPROFILE%\.claude\plugins\cache\bryce-labs\spec-workflow"
 REM Detect installed version with deterministic selection policy:
 REM 1. If CACHE_PARENT\LOCAL_VERSION exists -> use it (exact match)
 REM 2. Else if exactly one version dir exists -> use it
-REM 3. Else if multiple dirs exist -> pick first (alphabetical), warn
+REM 3. Else if multiple dirs exist -> pick newest by date (/o-d), warn
 REM 4. Else (no cache dir) -> fall back to LOCAL_VERSION (fresh install)
 set "VERSION="
 set "DIR_COUNT=0"
 set "FIRST_DIR="
 
 if exist "!CACHE_PARENT!" (
-    for /f "delims=" %%D in ('dir /b /ad "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp"') do (
+    for /f "delims=" %%D in ('dir /b /ad /o-d "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp"') do (
         set /a DIR_COUNT+=1
         if "!FIRST_DIR!"=="" set "FIRST_DIR=%%D"
     )
@@ -60,13 +60,13 @@ if exist "!CACHE_PARENT!\!LOCAL_VERSION!" (
     REM Policy 2: sole version dir
     set "VERSION=!FIRST_DIR!"
 ) else if !DIR_COUNT! gtr 1 (
-    REM Policy 3: multiple dirs — pick first, warn loudly
+    REM Policy 3: multiple dirs — pick newest by date, warn loudly
     set "VERSION=!FIRST_DIR!"
     echo WARNING: Multiple cache versions found in !CACHE_PARENT!
     for /f "delims=" %%D in ('dir /b /ad "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp"') do (
         echo   - %%D
     )
-    echo   Selected: !VERSION!
+    echo   Selected: !VERSION! (most recently modified)
     echo   To fix: delete stale version dirs
     echo.
 )
@@ -95,9 +95,8 @@ echo   Cache:   !CACHE_DIR!
 echo   Version: !VERSION!
 echo.
 
-REM Atomic-ish copy: write to temp dir, then rename
+REM Atomic-ish copy: write to temp dir, verify, then swap
 if exist "!CACHE_TMP!" rmdir /s /q "!CACHE_TMP!"
-if exist "!CACHE_DIR!" rmdir /s /q "!CACHE_DIR!"
 
 REM robocopy returns 0-7 on success; /E = recursive, /NFL /NDL /NJH /NJS = quiet
 robocopy "%SOURCE%" "!CACHE_TMP!" /E /NFL /NDL /NJH /NJS
@@ -122,8 +121,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Rename temp to final
+REM All verified — now replace the live cache
+REM Rename old to backup, swap new in, then delete backup
+set "CACHE_BAK=!CACHE_DIR!.__bak"
+if exist "!CACHE_BAK!" rmdir /s /q "!CACHE_BAK!"
+if exist "!CACHE_DIR!" ren "!CACHE_DIR!" "!VERSION!.__bak"
 ren "!CACHE_TMP!" "!VERSION!"
+if exist "!CACHE_BAK!" rmdir /s /q "!CACHE_BAK!"
 
 echo Verifying sentinel in cached spec.md:
 findstr /c:"ORCH_SENTINEL" "!CACHE_DIR!\commands\spec.md"

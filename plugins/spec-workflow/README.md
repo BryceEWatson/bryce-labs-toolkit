@@ -117,7 +117,6 @@ Reviews are persisted to `docs/reviews/` as local artifacts (not committed autom
 Requires Claude Code 2.1.0+ with support for:
 - `context: fork` in agent frontmatter
 - Prompt-based Stop hooks (`type: prompt`)
-- Plugin path variables (`${CLAUDE_PLUGIN_ROOT}`)
 
 ## Developer Workflow (Local Plugin Testing)
 
