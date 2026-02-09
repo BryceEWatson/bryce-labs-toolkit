@@ -34,25 +34,31 @@ feature branches or PR changes before they're merged.
 
 | Command | Description |
 |---------|-------------|
-| `/spec-workflow:spec <description>` | Generate SPEC.md |
+| `/spec-workflow:spec <description>` | Generate SPEC.md and run full pipeline |
 | `/spec-workflow:plan <spec-path>` | Generate PLAN.md with review loop |
 | `/spec-workflow:implement <plan-path>` | Execute with PR review loop |
 | `/spec-workflow:review [spec-path]` | Manual PR review |
 
 ## Workflow
 
+### Full Pipeline (Recommended)
+
+A single command runs the entire pipeline, pausing for your approval between stages:
+
 ```bash
-# 1. Create specification
 /spec-workflow:spec "Add user authentication"
-# Review and approve
+# → Generates spec → asks approval → generates plan (with internal review loop)
+#   → asks approval → implements (with PR review loop) → presents PR
+```
 
-# 2. Create plan (internal review loop)
+### Individual Stages
+
+Each stage can still be invoked standalone:
+
+```bash
 /spec-workflow:plan docs/specs/SPEC-user-auth.md
-# Review and approve
-
-# 3. Implement (internal PR review loop)
 /spec-workflow:implement docs/plans/PLAN-user-auth.md
-# Test locally, then merge
+/spec-workflow:review
 ```
 
 ## Architecture
@@ -65,9 +71,17 @@ feature branches or PR changes before they're merged.
 
 ### Internal Review Loops
 
+Each phase runs a mandatory internal review (minimum 1 iteration, max 3):
+
+| Phase | Reviewer | Checks Against |
+|-------|----------|----------------|
+| Spec | SpecReviewer | Spec quality (completeness, testability, RFC 2119) |
+| Plan | PlanReviewer | Spec (requirement coverage, AC mapping) |
+| Implementation | PRReviewer | Spec (catches plan drift) |
+
 - `context: fork` isolates reviewer context
-- Prompt-based Stop hooks evaluate completion
-- Max 5 iterations before escalating to user
+- Prompt-based Stop hooks + JSON decision lines evaluate completion
+- Reviewers output machine-parsable `{"verdict":..., "must_fix":N, ...}` for iteration tracking
 
 ### Review Loop Behavior
 
@@ -87,12 +101,54 @@ Commands generate files with kebab-case feature names derived from your input:
 - `/spec-workflow:spec "Add user authentication"` → `SPEC-user-auth.md`
 - `/spec-workflow:plan docs/specs/SPEC-user-auth.md` → `PLAN-user-auth.md`
 
+### Review Files
+
+Reviews are persisted to `docs/reviews/` as local artifacts (not committed automatically):
+
+| Source | File Pattern | Example |
+|--------|-------------|---------|
+| Spec review (pipeline) | `REVIEW-SPEC-{feature}.md` | `REVIEW-SPEC-dark-mode.md` |
+| Plan review (pipeline) | `REVIEW-PLAN-{feature}.md` | `REVIEW-PLAN-dark-mode.md` |
+| PR review (pipeline) | `REVIEW-PR-{feature}.md` | `REVIEW-PR-dark-mode.md` |
+| Standalone PR review | `REVIEW-{pr-number}.md` | `REVIEW-42.md` |
+
 ## Compatibility
 
 Requires Claude Code 2.1.0+ with support for:
 - `context: fork` in agent frontmatter
 - Prompt-based Stop hooks (`type: prompt`)
 - Plugin path variables (`${CLAUDE_PLUGIN_ROOT}`)
+
+## Developer Workflow (Local Plugin Testing)
+
+Claude Code caches plugins and runs from the cache, not from your working directory.
+See [UPSTREAM.md](UPSTREAM.md) for full details.
+
+### Quick Sync
+
+After editing plugin files, sync to cache:
+
+**Git Bash (Windows — NOT WSL):**
+```bash
+./tools/spec-workflow-dev-sync.sh
+```
+
+**CMD (Windows):**
+```cmd
+tools\spec-workflow-dev-sync.cmd
+```
+
+Then open a **new chat window**.
+
+The scripts auto-detect the installed cache version directory, so you don't need to
+match `plugin.json` version with the installed version.
+
+### Verification
+
+The first output from `/spec-workflow:spec` should include `ORCH_SENTINEL__9F2E`.
+If it doesn't, the cache was rebuilt from the remote — re-run the sync script.
+
+The sync scripts exit non-zero if the sentinel is missing, preventing invalid syncs.
 
 ## Known Issue (Upstream: Claude Code)
 

@@ -1,40 +1,113 @@
 ---
 description: Generate implementation plan with automated review loop
 argument-hint: "<path-to-spec.md>"
-allowed-tools: Read, Grep, Glob, WebSearch, Write, Bash(git status, git log *, git diff *, git branch *, git show *), Task
+allowed-tools: Read, Grep, Glob, WebSearch, Write, Bash(git status, git log *, git diff *, git branch *, git show *), Task, AskUserQuestion
 ---
 
-Generate and validate an implementation plan.
+spec-workflow v1.0.0 · Plan
 
-## Input
+You are running the standalone plan generation stage.
 
-Specification: $ARGUMENTS
+## Review File Semantics
 
-## Phase 1: Generate Plan
+Review files (`docs/reviews/REVIEW-*.md`) are local artifacts only. Do NOT commit them.
+Use the Write tool to create/update them; users can commit manually if desired.
 
-1. Read and parse SPEC.md
-2. Extract all REQ-*, AC-*, NFR-* identifiers
-3. Explore codebase for patterns and integration points
-4. Create PLAN.md with:
-   - Requirement Mapping Table (every REQ-* maps to task(s))
-   - Tasks with dependencies, file paths, test files
-   - Architecture Decisions with rationale
-   - Risk Assessment
+## Argument Parsing
 
-Save to: `docs/plans/PLAN-{feature-name}.md`
+Determine the type of $ARGUMENTS:
 
-Use template: @${CLAUDE_PLUGIN_ROOT}/skills/spec-driven-dev/reference/PLAN_TEMPLATE.md
+1. **File path** (contains `/` or `\` or ends in `.md`):
+   - SPEC_PATH = $ARGUMENTS
+   - Derive FEATURE_NAME from basename: `SPEC-foo-bar.md` → `foo-bar`
 
-## Phase 2: Review Loop
+2. **Freeform text** (no path separators, does not end in `.md`):
+   - FEATURE_NAME = kebab-case($ARGUMENTS), e.g., "Add user auth" → `add-user-auth`
+   - SPEC_PATH = `docs/specs/SPEC-{FEATURE_NAME}.md`
+   - Verify SPEC_PATH exists. If not, ask user for the correct spec path.
 
-After generating the plan, invoke the plan-reviewer agent:
+## Step 1: Read Inputs
 
+Read the specification at SPEC_PATH.
+Extract all REQ-*, AC-*, NFR-* identifiers from the spec.
+
+## Step 2: Explore Codebase
+
+Explore the codebase for existing patterns, integration points, and conventions using read-only tools.
+
+## Step 3: Generate Plan
+
+### Plan Template
+
+Use this structure for the plan:
+
+```markdown
+# Implementation Plan: {Feature Name}
+
+**Spec:** {REQUIRED: relative path to SPEC.md, e.g., docs/specs/SPEC-feature-name.md}
+**Version:** 1.0
+**Status:** Draft | Under Review | Approved
+**Date:** {YYYY-MM-DD}
+
+> **Note:** The Spec field is mandatory. Plans without a valid spec reference
+> will be rejected by the plan-reviewer. This link enables the implement and
+> review phases to validate against the original requirements.
+
+## Requirement Mapping
+
+| Spec ID | Task ID(s) | Status |
+|---------|------------|--------|
+| REQ-001 | TASK-001 | ✅ Mapped |
+| AC-001 | TASK-001 (test) | ✅ Mapped |
+
+**Coverage:** X/X (100%)
+
+## Tasks
+
+### TASK-001: {Title}
+
+**Maps to:** REQ-001, AC-001
+**Dependencies:** None
+
+**Files:**
+- Create: `src/path/file.ts`
+- Modify: `src/path/existing.ts`
+
+**Test:** `tests/path/file.test.ts`
+
+**Description:**
+{implementation details}
+
+---
+
+## Architecture Decisions
+
+### AD-001: {Decision}
+
+**Choice:** {selected approach}
+**Rationale:** {why}
+**Alternatives:** {rejected options and why}
+
+## Risk Assessment
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| {risk} | High | {strategy} |
 ```
-Use @plan-reviewer to validate the plan.
-Input:
-- SPEC: $ARGUMENTS
-- PLAN: docs/plans/PLAN-{feature-name}.md
-```
+
+Create the implementation plan following the template:
+- Requirement Mapping Table — every REQ-*/AC-*/NFR-* MUST map to at least one task
+- Tasks: TASK-001, TASK-002, ... with dependencies, specific file paths, and test files
+- Architecture Decisions with rationale
+- Risk Assessment
+
+Save to: `docs/plans/PLAN-{FEATURE_NAME}.md`
+
+## Step 4: Internal Review Loop
+
+Use the `plan-reviewer` subagent (`@plan-reviewer`) to validate the plan. Pass it:
+- SPEC: SPEC_PATH
+- PLAN: docs/plans/PLAN-{FEATURE_NAME}.md
 
 The plan-reviewer runs in forked context and checks:
 - Every REQ-* mapped to task(s)
@@ -42,10 +115,70 @@ The plan-reviewer runs in forked context and checks:
 - Architecture decisions have rationale
 - Risks identified
 
-If gaps found: revise plan and re-run review.
-If approved: present to user.
-Max iterations: 5
+**Minimum 1 iteration required** — always invoke the reviewer at least once.
 
-## Next Step
+Parse the JSON decision line from reviewer output:
+`{"verdict":"APPROVED"|"GAPS_IDENTIFIED","must_fix":N,"should_fix":N,"summary":"..."}`
 
-After approval: `/spec-workflow:implement docs/plans/PLAN-{feature-name}.md`
+If the reviewer finds gaps with must_fix > 0, revise the plan and re-invoke the reviewer. Repeat up to 3 total iterations.
+If max iterations reached without APPROVED, proceed to output anyway (let user decide).
+
+### Persist Plan Review
+
+Save all plan-reviewer iteration outputs to `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`:
+
+```
+# Plan Review: {Feature Name}
+
+**Plan:** docs/plans/PLAN-{FEATURE_NAME}.md
+**Date:** {YYYY-MM-DD}
+**Iterations:** {N}
+**Final Verdict:** {verdict}
+
+---
+
+## Iteration 1
+
+**Timestamp:** {YYYY-MM-DD HH:MM}
+**Verdict:** {verdict}
+**Must-Fix:** {N} | **Should-Fix:** {N}
+
+{full reviewer output}
+
+---
+
+## Iteration 2
+...
+```
+
+## Step 5: Present Results
+
+Print the following IN ORDER:
+
+**1. Summary table:**
+
+| Metric | Value |
+|--------|-------|
+| Tasks | N |
+| Requirement Coverage | X/Y (Z%) |
+| Architecture Decisions | N |
+| Risks Identified | N |
+| Review Iterations | N |
+
+**2. Review iteration log** (from parsed JSON decision lines):
+
+| Iteration | Must-Fix | Should-Fix | Verdict |
+|-----------|----------|------------|---------|
+
+**3. Artifact paths + excerpt:**
+
+- **Plan saved to:** `docs/plans/PLAN-{FEATURE_NAME}.md`
+- **Review saved to:** `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`
+- **Tasks:** {TASK IDs and titles, one per line, max 10}
+- **Quick access:**
+  - VS Code: `code docs/plans/PLAN-{FEATURE_NAME}.md`
+  - Terminal (bash): `cat docs/plans/PLAN-{FEATURE_NAME}.md`
+  - Terminal (CMD): `type docs\plans\PLAN-{FEATURE_NAME}.md`
+
+Then tell the user:
+"Plan is ready. Run `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md` to continue."

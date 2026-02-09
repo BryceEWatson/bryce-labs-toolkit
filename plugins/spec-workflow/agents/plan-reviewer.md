@@ -71,3 +71,17 @@ Tests: 12/12 acceptance criteria (100%)
 
 ✅ PLAN APPROVED - Ready for user review
 ```
+
+## Mandatory Decision Line
+
+At the END of your review, output this JSON on its own line (no other text on this line):
+
+```
+{"verdict":"APPROVED","must_fix":0,"should_fix":0,"summary":"100% coverage, all tasks ordered"}
+```
+
+Or if gaps found:
+
+```
+{"verdict":"GAPS_IDENTIFIED","must_fix":2,"should_fix":1,"summary":"REQ-003 unmapped, AC-005 missing test"}
+```

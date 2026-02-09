@@ -84,3 +84,17 @@ Or if passing:
 - Test login with valid/invalid credentials
 - Verify session persistence
 ```
+
+## Mandatory Decision Line
+
+At the END of your review, output this JSON on its own line (no other text on this line):
+
+```
+{"verdict":"APPROVED","must_fix":0,"should_fix":0,"summary":"All requirements implemented and tested"}
+```
+
+Or if issues found:
+
+```
+{"verdict":"CHANGES_REQUESTED","must_fix":1,"should_fix":2,"summary":"REQ-003 not implemented, 2 missing tests"}
+```
