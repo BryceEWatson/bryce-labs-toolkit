@@ -66,21 +66,38 @@ If `--dry-run` is in `$ARGUMENTS`:
 
 ## Step 4: Confirmation
 
-If `--force` is NOT in `$ARGUMENTS`, use AskUserQuestion to confirm:
+If `--force` is NOT in `$ARGUMENTS`, use AskUserQuestion to confirm.
 
-```
-## Spec-Workflow Reset
+The question text MUST use the modal-safe plaintext template below **verbatim**
+(same lines and sections), only substituting the file list.
 
-The following files will be permanently deleted:
+MODAL-SAFE RULES (apply to every AskUserQuestion question text):
+- NO markdown headings (no #, ##)
+- NO markdown tables (no | … |)
+- NO code fences (no ```)
+- NO bold markers (no **text**)
+- Keep lines <= 90 chars; use blank lines to separate sections
 
-{list each file path, one per line}
+TEMPLATE (use verbatim, substitute values in braces):
 
-.gitkeep files will be preserved. Directories will not be removed.
+--------------------------------
+SPEC-WORKFLOW RESET
 
-### What each choice does
-- **Delete all listed files** → Permanently removes the artifacts shown above
-- **Cancel** → No files are deleted; re-run with `--dry-run` to preview again
-```
+This will delete the following files:
+{one file per line}
+
+Notes:
+- .gitkeep files will be preserved
+- Directories will not be removed
+
+Quick rerun:
+- Dry run:  /spec-workflow:reset --dry-run
+- Force:    /spec-workflow:reset --force
+
+Choose:
+- Delete all listed files -> permanently deletes them
+- Cancel -> deletes nothing
+--------------------------------
 
 Options (buttons):
 - "Delete all listed files"

@@ -176,42 +176,49 @@ Print:
   - First 120 lines (CMD): `powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"`
 
 **4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Use the template **verbatim**
-(same headings and sections), only substituting values. Do NOT omit sections even if empty —
-write "None" or "N/A". If a value cannot be derived (e.g., coverage counts), write "Unknown"
-rather than omitting the field.
+(the user may not see any output printed before the modal). Use the modal-safe plaintext
+template below **verbatim** (same lines and sections), only substituting values in braces.
+Do NOT omit sections even if empty — write "None" or "N/A". If a value cannot be derived
+(e.g., coverage counts), write "Unknown" rather than omitting the field.
 
-```
-## Spec Review Gate
+MODAL-SAFE RULES (apply to every AskUserQuestion question text):
+- NO markdown headings (no #, ##)
+- NO markdown tables (no | … |)
+- NO code fences (no ```)
+- NO bold markers (no **text**)
+- Keep lines <= 90 chars; use blank lines to separate sections
+- Prefer key/value lines, short bullets, simple separators like "----"
 
-**Spec:** `{SPEC_PATH}`
-**Review:** `docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md`
+TEMPLATE (use verbatim, substitute values in braces):
 
-### Internal Review
-| Iter | Must-Fix | Should-Fix | Verdict |
-|------|----------|------------|---------|
-| 1    | {N}      | {N}        | {V}     |
-| ...  |          |            |         |
+--------------------------------
+SPEC GATE
 
-**Latest verdict:** {verdict} — {summary}
+Spec:   {SPEC_PATH}
+Review: docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md
 
-### Overview (from spec)
-{First paragraph of the spec's Overview section, max ~10 lines}
+Internal review:
+- Iterations: {ITER_COUNT}
+- Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+- Summary: {LATEST_SUMMARY}
 
-### Gap Summary
-{List open questions from spec + should-fix items from latest review. If none: "No gaps."}
+Overview (first paragraph):
+{OVERVIEW_FIRST_PARAGRAPH_MAX_10_LINES}
 
-### Quick Open
-- VS Code: `code {SPEC_PATH}`
-- Bash: `head -120 {SPEC_PATH}`
-- CMD: `type {SPEC_PATH}`
-- PowerShell: `powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"`
+Gaps:
+{OPEN_QUESTIONS_PLUS_SHOULD_FIX_ITEMS_OR_"None"}
 
-### What each choice does
-- **Approve spec** → Proceeds to Phase 2 (plan generation) immediately
-- **Request revisions** → Re-enters revision loop (revise spec → re-run reviewer → re-present this gate)
-- **Stop pipeline** → Pauses pipeline. Resume later: `/spec-workflow:plan {SPEC_PATH}`
-```
+Quick open:
+- VS Code: code {SPEC_PATH}
+- Bash:    head -120 {SPEC_PATH}
+- CMD:     type {SPEC_PATH}
+- PS:      powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"
+
+Choose:
+- Approve spec -> continue to planning now
+- Request revisions -> revise spec + re-review + show this gate again
+- Stop pipeline -> resume later: /spec-workflow:plan {SPEC_PATH}
+--------------------------------
 
 Options (buttons):
 - "Approve spec — continue to planning"
@@ -338,46 +345,53 @@ Print:
   - Terminal (CMD): `type {PLAN_PATH}`
 
 **4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Use the template **verbatim**
-(same headings and sections), only substituting values. Do NOT omit sections even if empty —
-write "None" or "N/A". If a value cannot be derived (e.g., coverage counts), write "Unknown"
-rather than omitting the field.
+(the user may not see any output printed before the modal). Use the modal-safe plaintext
+template below **verbatim** (same lines and sections), only substituting values in braces.
+Do NOT omit sections even if empty — write "None" or "N/A". If a value cannot be derived
+(e.g., coverage counts), write "Unknown" rather than omitting the field.
 
-```
-## Plan Review Gate
+MODAL-SAFE RULES (apply to every AskUserQuestion question text):
+- NO markdown headings (no #, ##)
+- NO markdown tables (no | … |)
+- NO code fences (no ```)
+- NO bold markers (no **text**)
+- Keep lines <= 90 chars; use blank lines to separate sections
+- Prefer key/value lines, short bullets, simple separators like "----"
 
-**Plan:** `{PLAN_PATH}`
-**Spec:** `{SPEC_PATH}`
-**Review:** `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`
+TEMPLATE (use verbatim, substitute values in braces):
 
-### Internal Review
-| Iter | Must-Fix | Should-Fix | Verdict |
-|------|----------|------------|---------|
-| 1    | {N}      | {N}        | {V}     |
-| ...  |          |            |         |
+--------------------------------
+PLAN GATE
 
-**Latest verdict:** {verdict} — {summary}
+Plan:   {PLAN_PATH}
+Spec:   {SPEC_PATH}
+Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md
 
-### Tasks (from plan)
-- TASK-001: {Title}
-- TASK-002: {Title}
-- ...
-{List each TASK ID and title, one per line, max 10. If >10: "...and N more"}
+Internal review:
+- Iterations: {ITER_COUNT}
+- Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+- Summary: {LATEST_SUMMARY}
 
-### Coverage
-{X/Y REQ mapped, X/Y AC mapped, X/Y NFR mapped}
+Top tasks (max 10):
+- TASK-001: {TITLE}
+- TASK-002: {TITLE}
+{...}
+{If >10: "...and N more"}
 
-### Quick Open
-- VS Code: `code {PLAN_PATH}`
-- Bash: `head -120 {PLAN_PATH}`
-- CMD: `type {PLAN_PATH}`
-- PowerShell: `powershell -NoProfile -Command "Get-Content '{PLAN_PATH}' -TotalCount 120"`
+Coverage:
+REQ {REQ_MAPPED}/{REQ_TOTAL}, AC {AC_MAPPED}/{AC_TOTAL}, NFR {NFR_MAPPED}/{NFR_TOTAL}
 
-### What each choice does
-- **Approve plan** → Proceeds to Phase 3 (implementation) immediately
-- **Request revisions** → Re-enters revision loop (revise plan → re-run reviewer → re-present this gate)
-- **Stop pipeline** → Pauses pipeline. Resume later: `/spec-workflow:implement {PLAN_PATH}`
-```
+Quick open:
+- VS Code: code {PLAN_PATH}
+- Bash:    head -120 {PLAN_PATH}
+- CMD:     type {PLAN_PATH}
+- PS:      powershell -NoProfile -Command "Get-Content '{PLAN_PATH}' -TotalCount 120"
+
+Choose:
+- Approve plan -> continue to implementation now
+- Request revisions -> revise plan + re-review + show this gate again
+- Stop pipeline -> resume later: /spec-workflow:implement {PLAN_PATH}
+--------------------------------
 
 Options (buttons):
 - "Approve plan — continue to implementation"
