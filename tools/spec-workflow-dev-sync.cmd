@@ -47,7 +47,7 @@ set "DIR_COUNT=0"
 set "FIRST_DIR="
 
 if exist "!CACHE_PARENT!" (
-    for /f "delims=" %%D in ('dir /b /ad /o-d "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp"') do (
+    for /f "delims=" %%D in ('dir /b /ad /o-d "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp" ^| findstr /v "__bak"') do (
         set /a DIR_COUNT+=1
         if "!FIRST_DIR!"=="" set "FIRST_DIR=%%D"
     )
@@ -63,7 +63,7 @@ if exist "!CACHE_PARENT!\!LOCAL_VERSION!" (
     REM Policy 3: multiple dirs — pick newest by date, warn loudly
     set "VERSION=!FIRST_DIR!"
     echo WARNING: Multiple cache versions found in !CACHE_PARENT!
-    for /f "delims=" %%D in ('dir /b /ad "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp"') do (
+    for /f "delims=" %%D in ('dir /b /ad "!CACHE_PARENT!" 2^>nul ^| findstr /v "__tmp" ^| findstr /v "__bak"') do (
         echo   - %%D
     )
     echo   Selected: !VERSION! (most recently modified)

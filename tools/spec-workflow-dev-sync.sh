@@ -45,7 +45,7 @@ CACHE_PARENT="$CLAUDE_HOME/.claude/plugins/cache/bryce-labs/spec-workflow"
 # 4. Else (no cache dir) → fall back to LOCAL_VERSION (fresh install)
 VERSION=""
 if [ -d "$CACHE_PARENT" ]; then
-  CANDIDATES=$(ls -1 "$CACHE_PARENT" 2>/dev/null | grep -v '__tmp' || true)
+  CANDIDATES=$(ls -1 "$CACHE_PARENT" 2>/dev/null | grep -v '__tmp' | grep -v '__bak' || true)
   COUNT=$(echo "$CANDIDATES" | grep -c '.' || true)
 
   if [ -d "$CACHE_PARENT/$LOCAL_VERSION" ]; then
@@ -53,7 +53,7 @@ if [ -d "$CACHE_PARENT" ]; then
   elif [ "$COUNT" -eq 1 ] && [ -n "$CANDIDATES" ]; then
     VERSION="$CANDIDATES"
   elif [ "$COUNT" -gt 1 ]; then
-    VERSION=$(ls -1t "$CACHE_PARENT" | grep -v '__tmp' | head -1)
+    VERSION=$(ls -1t "$CACHE_PARENT" | grep -v '__tmp' | grep -v '__bak' | head -1)
     echo "WARNING: Multiple cache versions found:"
     echo "$CANDIDATES" | sed 's/^/  - /'
     echo "  Selected: $VERSION (most recently modified)"
