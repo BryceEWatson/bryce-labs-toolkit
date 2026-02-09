@@ -11,6 +11,34 @@ bryce-labs-toolkit/
   CONTRIBUTING.md         # Contribution guidelines
   SECURITY.md             # Security policy
   .gitignore              # Git ignore patterns
+  .claude-plugin/         # Marketplace configuration
+    marketplace.json      # Plugin registry for Claude Code marketplace
+
+  plugins/                # Claude Code plugins
+    spec-workflow/        # Spec-driven development workflow
+      .claude-plugin/     # Plugin metadata
+        plugin.json       # Plugin definition
+      agents/             # AI agent prompts
+        spec-builder.md
+        planner.md
+        implementer.md
+        plan-reviewer.md
+        pr-reviewer.md
+        spec-reviewer.md
+      commands/           # Plugin commands
+        spec.md
+        plan.md
+        implement.md
+        review.md
+        reset.md
+      skills/             # Embedded skills
+        spec-driven-dev/  # Core methodology skill
+      hooks/              # Command hooks
+        hooks.json
+      scripts/            # Utility scripts
+        check-review-result.py
+      README.md
+      UPSTREAM.md
 
   skills/                 # Claude Code skills
     README.md             # Skills development guide
@@ -35,16 +63,38 @@ bryce-labs-toolkit/
         story-preprocessor.cjs  # Node.js preprocessor (forked from lessons-extractor)
         story-preprocessor      # POSIX shell wrapper
         story-preprocessor.cmd  # Windows batch wrapper
-      prompts/            # Prompt templates (score, write, render)
+      prompts/            # Prompt templates
+        score_candidates.md     # Candidate scoring prompt
+        write_story.md          # Story writing prompt
+        render_outputs.md       # Output rendering prompt
       eval/               # Deterministic eval runner + fixtures
         run-selftest.cjs  # Eval runner (decides PASS/FAIL)
         fixtures/         # Test fixtures (JSON)
       examples/           # Sample inputs/outputs
+        sample-input.md   # Example input
+        sample-output.md  # Example output
+
+  tools/                  # CLI tools
+    skills-sync           # POSIX wrapper
+    skills-sync.cmd       # Windows wrapper
+    skills-sync.js        # Main script (Node.js)
+    lint-skills.sh        # Windows-safety linter
+    spec-workflow-dev-sync.sh      # Plugin dev sync (POSIX)
+    spec-workflow-dev-sync.cmd     # Plugin dev sync (Windows)
+    spec-workflow-reset.sh         # Spec-workflow reset (POSIX)
+    spec-workflow-reset.cmd        # Spec-workflow reset (Windows)
+    story-miner-reset.sh           # Story-miner reset (POSIX)
+    story-miner-reset.cmd          # Story-miner reset (Windows)
+    lessons-extractor-reset.sh     # Lessons-extractor reset (POSIX)
+    lessons-extractor-reset.cmd    # Lessons-extractor reset (Windows)
 
   docs/                   # Documentation
     index.md              # Docs landing page
     reference/            # Reference documentation
       repo-layout.md      # This file
+      artifact-contract.md  # Reset command contract
+    story-miner/          # Story-miner documentation
+      IMPLEMENTATION_PLAN.md  # Development roadmap
 ```
 
 ## Design Principles

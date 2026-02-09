@@ -12,11 +12,16 @@ A collection of reusable Claude Code skills, tools, and templates for AI-assiste
 
 - **[cleanup](skills/cleanup/)** - Post-merge git branch cleanup with safety checks, auto-detected base branch, and squash-merge support
 - **[lessons-extractor](skills/lessons-extractor/)** - Extract lessons learned from Claude Code session logs into organized markdown and JSONL files
+- **[story-miner](skills/story-miner/)** - Mine Claude Code session history for publishable development stories
 
 ### Tools
 
 - **[skills-sync](tools/)** - Install and update skills to target projects (cross-platform wrappers included)
 - **[lint-skills](tools/lint-skills.sh)** - Lint skills for Windows-unsafe patterns
+- **[spec-workflow-reset](tools/spec-workflow-reset.sh)** - Reset spec-workflow artifacts (specs, plans, reviews)
+- **[story-miner-reset](tools/story-miner-reset.sh)** - Reset story-miner output artifacts
+- **[lessons-extractor-reset](tools/lessons-extractor-reset.sh)** - Reset lessons-extractor output artifacts
+- **[spec-workflow-dev-sync](tools/spec-workflow-dev-sync.sh)** - Sync plugin edits to Claude Code cache for local development
 
 ## Install Plugins
 
@@ -36,6 +41,8 @@ For development or testing a PR branch, install from a local path:
 git clone https://github.com/BryceEWatson/bryce-labs-toolkit.git
 /plugin install /path/to/bryce-labs-toolkit/plugins/spec-workflow
 ```
+
+> **Note:** Skills (cleanup, lessons-extractor, story-miner) can be installed via the marketplace or using skills-sync (below). The spec-workflow plugin is installed only via marketplace or local path.
 
 ## Install Skills
 
@@ -94,11 +101,20 @@ bryce-labs-toolkit/
   skills/                 # Claude Code skills
     cleanup/              # Post-merge branch cleanup
     lessons-extractor/    # Log reflection skill
+    story-miner/          # Session history story mining
   tools/                  # CLI tools
     skills-sync           # POSIX wrapper
     skills-sync.cmd       # Windows wrapper
     skills-sync.js        # Main script
     lint-skills.sh        # Windows-safety linter
+    spec-workflow-dev-sync.sh      # Plugin dev sync (POSIX)
+    spec-workflow-dev-sync.cmd     # Plugin dev sync (Windows)
+    spec-workflow-reset.sh         # Spec-workflow reset (POSIX)
+    spec-workflow-reset.cmd        # Spec-workflow reset (Windows)
+    story-miner-reset.sh           # Story-miner reset (POSIX)
+    story-miner-reset.cmd          # Story-miner reset (Windows)
+    lessons-extractor-reset.sh     # Lessons-extractor reset (POSIX)
+    lessons-extractor-reset.cmd    # Lessons-extractor reset (Windows)
   docs/                   # Documentation
 ```
 
