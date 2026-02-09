@@ -105,7 +105,7 @@ if "!USE_NODE!"=="true" (
 
     set "FILE_COUNT=0"
     for %%F in ("!FULL_OUTPUT_DIR!\*") do (
-        if not "%%~nxF"==".gitkeep" (
+        if exist "%%F" if not "%%~nxF"==".gitkeep" (
             set /a FILE_COUNT+=1
             set "FILE_!FILE_COUNT!=%%F"
         )
@@ -137,8 +137,10 @@ if "!USE_NODE!"=="true" (
 
     set "DELETED=0"
     for /l %%I in (1,1,!FILE_COUNT!) do (
-        del "!FILE_%%I!" 2>nul
-        set /a DELETED+=1
+        if exist "!FILE_%%I!" (
+            del "!FILE_%%I!" 2>nul
+            set /a DELETED+=1
+        )
     )
     echo Deleted !DELETED! file(s).
 )

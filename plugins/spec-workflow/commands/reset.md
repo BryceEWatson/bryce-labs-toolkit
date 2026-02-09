@@ -92,16 +92,23 @@ If user selects "Cancel" or provides free text that isn't clearly "delete" or "y
 
 ## Step 5: Execute Deletion
 
-Run the reset script via Bash:
+Build the script command by forwarding all parsed flags from `$ARGUMENTS`:
 
-```bash
-./tools/spec-workflow-reset.sh --force
+```
+./tools/spec-workflow-reset.sh --force [--feature <name> if provided]
 ```
 
-If `--feature <name>` was provided:
-```bash
-./tools/spec-workflow-reset.sh --force --feature <name>
-```
+**Flag forwarding rules** (you MUST follow these exactly):
+- Always include `--force` (confirmation was already handled in Step 4)
+- If `--feature <name>` was in `$ARGUMENTS`, append `--feature <name>` to the script command
+- Do NOT include `--dry-run` (that case was already handled in Step 3)
+
+**Examples:**
+- `$ARGUMENTS` = "" → `./tools/spec-workflow-reset.sh --force`
+- `$ARGUMENTS` = "--feature dark-mode" → `./tools/spec-workflow-reset.sh --force --feature dark-mode`
+- `$ARGUMENTS` = "--force --feature dark-mode" → `./tools/spec-workflow-reset.sh --force --feature dark-mode`
+
+Run via Bash.
 
 ## Step 6: Summary
 

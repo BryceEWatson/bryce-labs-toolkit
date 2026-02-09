@@ -151,6 +151,10 @@ Safety: `.gitkeep` files are always preserved. Only `SPEC-*.md`, `PLAN-*.md`, an
 `REVIEW-*.md` files are deleted. See [artifact-contract.md](../../docs/reference/artifact-contract.md)
 for the full reset contract.
 
+**Scope note:** A full reset (no `--feature`) deletes **all** `REVIEW-*.md` files, including
+standalone `REVIEW-{pr-number}.md` files. Use `--feature <name>` to scope deletion to a
+single feature's artifacts (SPEC, PLAN, REVIEW-SPEC, REVIEW-PLAN, REVIEW-PR only).
+
 ## Developer Workflow (Local Plugin Testing)
 
 Claude Code caches plugins and runs from the cache, not from your working directory.

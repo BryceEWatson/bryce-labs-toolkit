@@ -88,17 +88,25 @@ if not "!FEATURE!"=="" (
     )
 ) else (
     REM Full reset — all spec-workflow artifacts
+    REM Guard: for %%F in (glob) iterates once with the literal glob when no
+    REM files match. Check "if exist" to avoid phantom entries.
     for %%F in ("!SPECS_DIR!\SPEC-*.md") do (
-        set /a FILE_COUNT+=1
-        set "FILE_!FILE_COUNT!=%%F"
+        if exist "%%F" (
+            set /a FILE_COUNT+=1
+            set "FILE_!FILE_COUNT!=%%F"
+        )
     )
     for %%F in ("!PLANS_DIR!\PLAN-*.md") do (
-        set /a FILE_COUNT+=1
-        set "FILE_!FILE_COUNT!=%%F"
+        if exist "%%F" (
+            set /a FILE_COUNT+=1
+            set "FILE_!FILE_COUNT!=%%F"
+        )
     )
     for %%F in ("!REVIEWS_DIR!\REVIEW-*.md") do (
-        set /a FILE_COUNT+=1
-        set "FILE_!FILE_COUNT!=%%F"
+        if exist "%%F" (
+            set /a FILE_COUNT+=1
+            set "FILE_!FILE_COUNT!=%%F"
+        )
     )
 )
 
@@ -131,11 +139,13 @@ if not "!FORCE!"=="true" (
     )
 )
 
-REM Delete
+REM Delete (only count files that actually existed)
 set "DELETED=0"
 for /l %%I in (1,1,!FILE_COUNT!) do (
-    del "!FILE_%%I!" 2>nul
-    set /a DELETED+=1
+    if exist "!FILE_%%I!" (
+        del "!FILE_%%I!" 2>nul
+        set /a DELETED+=1
+    )
 )
 
 echo Deleted !DELETED! file(s).

@@ -40,6 +40,10 @@ Scripts live in `tools/` and follow the naming pattern `<tool>-reset.{sh,cmd}`:
 
 Supports `--feature <name>` to scope deletion to a single feature's artifacts.
 
+**Scope:** A full reset (no `--feature`) deletes all `REVIEW-*.md` files, including standalone
+`REVIEW-{pr-number}.md`. Use `--feature <name>` to limit to SPEC, PLAN, REVIEW-SPEC,
+REVIEW-PLAN, and REVIEW-PR for that feature only.
+
 ```bash
 # Preview
 ./tools/spec-workflow-reset.sh --dry-run
