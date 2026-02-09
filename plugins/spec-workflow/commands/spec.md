@@ -175,8 +175,43 @@ Print:
   - First 120 lines (bash): `head -120 {SPEC_PATH}`
   - First 120 lines (CMD): `powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"`
 
-**4.** Then IMMEDIATELY call the AskUserQuestion tool with question text:
-"Spec saved to `{SPEC_PATH}`. Review the full spec, then choose:"
+**4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
+(the user may not see any output printed before the modal). Build the question text using this
+Gate Question Standard template, substituting actual values:
+
+```
+## Spec Review Gate
+
+**Spec:** `{SPEC_PATH}`
+**Review:** `docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md`
+
+### Internal Review
+| Iter | Must-Fix | Should-Fix | Verdict |
+|------|----------|------------|---------|
+| 1    | {N}      | {N}        | {V}     |
+| ...  |          |            |         |
+
+**Latest verdict:** {verdict} — {summary}
+
+### Overview (from spec)
+{First paragraph of the spec's Overview section, max ~10 lines}
+
+### Gap Summary
+{List open questions from spec + should-fix items from latest review. If none: "No gaps."}
+
+### Quick Open
+- VS Code: `code {SPEC_PATH}`
+- Bash: `head -120 {SPEC_PATH}`
+- CMD: `type {SPEC_PATH}`
+- PowerShell: `powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"`
+
+### What each choice does
+- **Approve spec** → Proceeds to Phase 2 (plan generation) immediately
+- **Request revisions** → Re-enters revision loop (revise spec → re-run reviewer → re-present this gate)
+- **Stop pipeline** → Pauses pipeline. Resume later: `/spec-workflow:plan {SPEC_PATH}`
+```
+
+Options (buttons):
 - "Approve spec — continue to planning"
 - "Request revisions"
 - "Stop pipeline"
@@ -300,8 +335,47 @@ Print:
   - Terminal (bash): `cat {PLAN_PATH}`
   - Terminal (CMD): `type {PLAN_PATH}`
 
-**4.** Then IMMEDIATELY call the AskUserQuestion tool with question text:
-"Plan saved to `{PLAN_PATH}`. Review the full plan, then choose:"
+**4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
+(the user may not see any output printed before the modal). Build the question text using this
+Gate Question Standard template, substituting actual values:
+
+```
+## Plan Review Gate
+
+**Plan:** `{PLAN_PATH}`
+**Spec:** `{SPEC_PATH}`
+**Review:** `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`
+
+### Internal Review
+| Iter | Must-Fix | Should-Fix | Verdict |
+|------|----------|------------|---------|
+| 1    | {N}      | {N}        | {V}     |
+| ...  |          |            |         |
+
+**Latest verdict:** {verdict} — {summary}
+
+### Tasks (from plan)
+- TASK-001: {Title}
+- TASK-002: {Title}
+- ...
+{List each TASK ID and title, one per line, max 10. If >10: "...and N more"}
+
+### Coverage
+{X/Y REQ mapped, X/Y AC mapped, X/Y NFR mapped}
+
+### Quick Open
+- VS Code: `code {PLAN_PATH}`
+- Bash: `head -120 {PLAN_PATH}`
+- CMD: `type {PLAN_PATH}`
+- PowerShell: `powershell -NoProfile -Command "Get-Content '{PLAN_PATH}' -TotalCount 120"`
+
+### What each choice does
+- **Approve plan** → Proceeds to Phase 3 (implementation) immediately
+- **Request revisions** → Re-enters revision loop (revise plan → re-run reviewer → re-present this gate)
+- **Stop pipeline** → Pauses pipeline. Resume later: `/spec-workflow:implement {PLAN_PATH}`
+```
+
+Options (buttons):
 - "Approve plan — continue to implementation"
 - "Request revisions"
 - "Stop pipeline"

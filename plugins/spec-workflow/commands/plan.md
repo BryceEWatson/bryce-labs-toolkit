@@ -180,5 +180,55 @@ Print the following IN ORDER:
   - Terminal (bash): `cat docs/plans/PLAN-{FEATURE_NAME}.md`
   - Terminal (CMD): `type docs\plans\PLAN-{FEATURE_NAME}.md`
 
-Then tell the user:
-"Plan is ready. Run `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md` to continue."
+**4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
+(the user may not see any output printed before the modal). Build the question text using this
+Gate Question Standard template, substituting actual values:
+
+```
+## Plan Review Gate
+
+**Plan:** `docs/plans/PLAN-{FEATURE_NAME}.md`
+**Spec:** `{SPEC_PATH}`
+**Review:** `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`
+
+### Internal Review
+| Iter | Must-Fix | Should-Fix | Verdict |
+|------|----------|------------|---------|
+| 1    | {N}      | {N}        | {V}     |
+| ...  |          |            |         |
+
+**Latest verdict:** {verdict} — {summary}
+
+### Tasks (from plan)
+- TASK-001: {Title}
+- TASK-002: {Title}
+- ...
+{List each TASK ID and title, one per line, max 10. If >10: "...and N more"}
+
+### Coverage
+{X/Y REQ mapped, X/Y AC mapped, X/Y NFR mapped}
+
+### Quick Open
+- VS Code: `code docs/plans/PLAN-{FEATURE_NAME}.md`
+- Bash: `head -120 docs/plans/PLAN-{FEATURE_NAME}.md`
+- CMD: `type docs\plans\PLAN-{FEATURE_NAME}.md`
+- PowerShell: `powershell -NoProfile -Command "Get-Content 'docs/plans/PLAN-{FEATURE_NAME}.md' -TotalCount 120"`
+
+### What each choice does
+- **Approve plan** → Plan is finalized. Proceed with: `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md`
+- **Request revisions** → Re-enters revision loop (revise plan → re-run reviewer → re-present this gate)
+- **Done** → Plan saved. Resume implementation later: `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md`
+```
+
+Options (buttons):
+- "Approve plan"
+- "Request revisions"
+- "Done — review later"
+
+**5. Response handling:**
+- User selects "Approve plan" → print: "Plan approved. Run `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md` to implement."
+- User selects "Request revisions" → revise plan, re-save, re-run plan-reviewer, re-present gate.
+- User selects "Done" → print: "Plan saved. Resume with `/spec-workflow:implement docs/plans/PLAN-{FEATURE_NAME}.md`."
+- User provides free text containing revision instructions → treat as "Request revisions".
+- User provides free text containing "stop", "pause", or "done" → treat as "Done".
+- **All other free text** (including "yes", "ok", "approve") → re-present AskUserQuestion. Only explicit button selection advances.
