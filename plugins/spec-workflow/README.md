@@ -38,6 +38,7 @@ feature branches or PR changes before they're merged.
 | `/spec-workflow:plan <spec-path>` | Generate PLAN.md with review loop |
 | `/spec-workflow:implement <plan-path>` | Execute with PR review loop |
 | `/spec-workflow:review [spec-path]` | Manual PR review |
+| `/spec-workflow:reset [flags]` | Clear spec-workflow artifacts |
 
 ## Workflow
 
@@ -117,6 +118,38 @@ Reviews are persisted to `docs/reviews/` as local artifacts (not committed autom
 Requires Claude Code 2.1.0+ with support for:
 - `context: fork` in agent frontmatter
 - Prompt-based Stop hooks (`type: prompt`)
+
+## Reset Artifacts
+
+Remove generated specs, plans, and reviews to start from a clean slate.
+
+### Plugin Command (Claude Code)
+
+```bash
+/spec-workflow:reset --dry-run              # Preview what would be deleted
+/spec-workflow:reset --force                # Delete all artifacts (no prompt)
+/spec-workflow:reset --feature dark-mode    # Delete only dark-mode artifacts
+```
+
+### Shell Scripts
+
+**Git Bash / macOS / Linux:**
+```bash
+./tools/spec-workflow-reset.sh --dry-run
+./tools/spec-workflow-reset.sh --force
+./tools/spec-workflow-reset.sh --force --feature dark-mode
+```
+
+**Windows CMD:**
+```cmd
+tools\spec-workflow-reset.cmd --dry-run
+tools\spec-workflow-reset.cmd --force
+tools\spec-workflow-reset.cmd --force --feature dark-mode
+```
+
+Safety: `.gitkeep` files are always preserved. Only `SPEC-*.md`, `PLAN-*.md`, and
+`REVIEW-*.md` files are deleted. See [artifact-contract.md](../../docs/reference/artifact-contract.md)
+for the full reset contract.
 
 ## Developer Workflow (Local Plugin Testing)
 

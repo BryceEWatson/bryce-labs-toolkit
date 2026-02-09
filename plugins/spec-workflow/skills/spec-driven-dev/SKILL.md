@@ -26,6 +26,7 @@ Spec Review                            Plan Review                             P
 | `/spec-workflow:plan <spec>` | Generate PLAN.md with review (standalone) |
 | `/spec-workflow:implement <plan>` | Execute with PR review (standalone) |
 | `/spec-workflow:review [spec]` | Manual review trigger |
+| `/spec-workflow:reset [flags]` | Clear generated artifacts |
 
 ## Information Asymmetry
 
@@ -61,3 +62,15 @@ Prevents confirmation bias.
 - Plan reviews: `docs/reviews/REVIEW-PLAN-{feature}.md`
 - PR reviews: `docs/reviews/REVIEW-PR-{feature}.md`
 - Standalone PR reviews: `docs/reviews/REVIEW-{pr-number}.md`
+
+## Reset
+
+Clear generated artifacts to start fresh:
+
+```bash
+/spec-workflow:reset --dry-run              # Preview deletions
+/spec-workflow:reset --force                # Delete all (no prompt)
+/spec-workflow:reset --feature dark-mode    # Scope to one feature
+```
+
+Clears `SPEC-*.md`, `PLAN-*.md`, `REVIEW-*.md`. Preserves `.gitkeep`.
