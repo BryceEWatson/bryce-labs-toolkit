@@ -176,8 +176,10 @@ Print:
   - First 120 lines (CMD): `powershell -NoProfile -Command "Get-Content '{SPEC_PATH}' -TotalCount 120"`
 
 **4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Build the question text using this
-Gate Question Standard template, substituting actual values:
+(the user may not see any output printed before the modal). Use the template **verbatim**
+(same headings and sections), only substituting values. Do NOT omit sections even if empty —
+write "None" or "N/A". If a value cannot be derived (e.g., coverage counts), write "Unknown"
+rather than omitting the field.
 
 ```
 ## Spec Review Gate
@@ -336,8 +338,10 @@ Print:
   - Terminal (CMD): `type {PLAN_PATH}`
 
 **4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Build the question text using this
-Gate Question Standard template, substituting actual values:
+(the user may not see any output printed before the modal). Use the template **verbatim**
+(same headings and sections), only substituting values. Do NOT omit sections even if empty —
+write "None" or "N/A". If a value cannot be derived (e.g., coverage counts), write "Unknown"
+rather than omitting the field.
 
 ```
 ## Plan Review Gate

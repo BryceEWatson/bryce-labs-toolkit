@@ -181,8 +181,10 @@ Print the following IN ORDER:
   - Terminal (CMD): `type docs\plans\PLAN-{FEATURE_NAME}.md`
 
 **4.** Then IMMEDIATELY call the AskUserQuestion tool. The question text MUST be self-contained
-(the user may not see any output printed before the modal). Build the question text using this
-Gate Question Standard template, substituting actual values:
+(the user may not see any output printed before the modal). Use the template **verbatim**
+(same headings and sections), only substituting values. Do NOT omit sections even if empty —
+write "None" or "N/A". If a value cannot be derived (e.g., coverage counts), write "Unknown"
+rather than omitting the field.
 
 ```
 ## Plan Review Gate
