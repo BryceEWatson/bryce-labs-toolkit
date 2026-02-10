@@ -79,14 +79,20 @@ def extract_verdict(transcript: str) -> tuple[bool, bool]:
     if verdict_match:
         verdict_text = verdict_match.group(1)
         approved = any(ind in verdict_text for ind in [
+            '[x] Approved',
+            '**[x] Approved**',
+            '[x] PLAN APPROVED',
+            'APPROVED',
+            # Legacy emoji markers (backward compat)
             '✅ Approved',
             '**✅ Approved**',
-            'APPROVED',
             '✅ PLAN APPROVED',
         ])
         has_issues = any(ind in verdict_text for ind in [
             'Changes Requested',
             'Rejected',
+            '[!]',
+            # Legacy emoji markers (backward compat)
             '❌',
         ])
         return approved, has_issues
@@ -95,14 +101,20 @@ def extract_verdict(transcript: str) -> tuple[bool, bool]:
     approved = any(ind in transcript for ind in [
         '## Plan Review: APPROVED',
         '## PR Review: APPROVED',
+        '[x] PLAN APPROVED',
+        '**[x] Approved**',
+        # Legacy emoji markers (backward compat)
         '✅ PLAN APPROVED',
         '**✅ Approved**',
     ])
 
     has_issues = any(ind in transcript for ind in [
         '## Plan Review: GAPS IDENTIFIED',
-        '### 🔴 Critical',
+        '### [!!] Critical',
         '**Changes Requested**',
+        '**[!] Rejected**',
+        # Legacy emoji markers (backward compat)
+        '### 🔴 Critical',
         '**❌ Rejected**',
     ])
 
@@ -168,7 +180,7 @@ def main():
         print(json.dumps({
             "decision": "approve",
             "reason": f"Max iterations ({max_iterations}) reached.",
-            "systemMessage": "⚠️ Review loop hit max iterations. Some issues may remain."
+            "systemMessage": "[~] Review loop hit max iterations. Some issues may remain."
         }))
         sys.exit(0)
 

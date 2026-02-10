@@ -31,6 +31,15 @@ The pipeline only advances when the user selects the "Approve" button. Free-text
 Review files (`docs/reviews/REVIEW-*.md`) are local artifacts only. Do NOT commit them.
 Use the Write tool to create/update them; users can commit manually if desired.
 
+## Artifact Write Rules
+
+1. ALWAYS use the **Write** tool to persist SPEC, PLAN, and REVIEW files.
+   - NEVER use Bash heredocs (`cat <<EOF`), `echo "..." >`, or `python -c "..."` to write artifact content.
+2. All generated artifacts MUST contain only ASCII characters (U+0000-U+007F).
+   - Use ASCII status markers: `[x]` (done), `[ ]` (pending), `[!]` (critical), `[~]` (warning).
+   - Do NOT use emoji: no checkmarks, crosses, colored circles, or warning triangles.
+   - Reason: Non-ASCII causes cp1252 encoding failures on Windows consoles and file I/O.
+
 ## Clarifying Questions
 
 Only YOU (the orchestrator) may ask the user clarifying questions, and only in Phase 1.
@@ -54,6 +63,15 @@ When executing Bash commands on Windows (non-WSL):
 Canonical examples:
 - `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && ls tools/`
 - `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json','utf8'))"`
+
+### Preflight (before every Bash call)
+
+Before executing ANY Bash command, verify:
+1. The command string does NOT contain `:\` or `\\` (Windows backslash paths).
+   - If found: rewrite to forward slashes (e.g., `c:\Users\Bryce` -> `c:/Users/Bryce`).
+2. If the operation needs a Windows-only command (`type`, `dir`, `del`), route through
+   `cmd /c "..."` or `powershell -NoProfile -Command "..."` instead of bare Bash.
+3. All file paths use repo-relative paths where possible (after an initial `cd`).
 
 ## Tool Error Retry Rules
 
@@ -235,10 +253,19 @@ Keep the question text SHORT (max 5 lines). Move all details into option descrip
 QUESTION TEXT (substitute values in braces):
 
 SPEC GATE
-Spec: {SPEC_PATH}
-Review: docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md
-Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+Spec: {SPEC_PATH} | Review: docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md
+Latest: {LATEST_VERDICT} {MUST_FIX}/{SHOULD_FIX} | Issues: {TOP_ISSUES}
+History: {ITER_SUMMARY}
 Choose an action.
+
+TOP_ISSUES derivation:
+- From the latest reviewer output, extract up to 3 bullet items from "### Must-Fix" (first) then "### Should-Fix".
+- Use only the first ~50 chars of each bullet (the ID + title portion).
+- Join with "; ". If all sections contain only "- None", output "None".
+
+ITER_SUMMARY derivation:
+- For each completed review iteration, format: "{N}:{must_fix}/{should_fix}"
+- Join with " -> ". Example: "1:2/1 -> 2:0/0"
 
 OPTIONS (each option MUST have both label and description):
 
@@ -290,8 +317,8 @@ Use this structure for the plan:
 
 | Spec ID | Task ID(s) | Status |
 |---------|------------|--------|
-| REQ-001 | TASK-001 | ✅ Mapped |
-| AC-001 | TASK-001 (test) | ✅ Mapped |
+| REQ-001 | TASK-001 | [x] Mapped |
+| AC-001 | TASK-001 (test) | [x] Mapped |
 
 **Coverage:** X/X (100%)
 
@@ -388,10 +415,19 @@ Keep the question text SHORT (max 5 lines). Move all details into option descrip
 QUESTION TEXT (substitute values in braces):
 
 PLAN GATE
-Plan: {PLAN_PATH}
-Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md
-Latest: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+Plan: {PLAN_PATH} | Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md
+Latest: {LATEST_VERDICT} {MUST_FIX}/{SHOULD_FIX} | Issues: {TOP_ISSUES}
+History: {ITER_SUMMARY}
 Choose an action.
+
+TOP_ISSUES derivation:
+- From the latest plan-reviewer output, extract up to 3 bullet items from "### Must-Fix" (first) then "### Should-Fix".
+- Use only the first ~50 chars of each bullet (the ID + title portion).
+- Join with "; ". If all sections contain only "- None", output "None".
+
+ITER_SUMMARY derivation:
+- For each completed review iteration, format: "{N}:{must_fix}/{should_fix}"
+- Join with " -> ". Example: "1:2/1 -> 2:0/0"
 
 OPTIONS (each option MUST have both label and description):
 
@@ -463,7 +499,7 @@ Print the following IN ORDER:
 **4. Test instructions:**
 
 ```
-✅ Pipeline complete — PR ready for local testing
+[x] Pipeline complete — PR ready for local testing
 
 Test locally: git checkout {branch} && npm test
 ```

@@ -48,6 +48,13 @@ This isolation ensures unbiased review.
 4. **Task Completeness**
    Are dependencies ordered? File paths specific?
 
+## Calibration
+
+- You MAY return `must_fix: 0` AND `should_fix: 0` when the artifact meets all checklist criteria.
+- Do NOT invent issues to appear thorough. A clean pass is the correct outcome for a clean artifact.
+- **must_fix**: Blocks approval. Use ONLY for: missing requirements, untestable specs, unmapped coverage, broken invariants.
+- **should_fix**: Advisory. Use ONLY for: style improvements, optional clarifications, minor wording. If none exist, report 0.
+
 ## Output Format
 
 Your review MUST always include these two sections (even when approved):
@@ -86,7 +93,7 @@ Tests: 12/12 acceptance criteria (100%)
 ### Should-Fix
 - None
 
-✅ PLAN APPROVED - Ready for user review
+[x] PLAN APPROVED - Ready for user review
 ```
 
 ## Mandatory Decision Line

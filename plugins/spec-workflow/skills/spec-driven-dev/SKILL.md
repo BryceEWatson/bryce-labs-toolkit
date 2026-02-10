@@ -32,11 +32,11 @@ Spec Review                            Plan Review                             P
 
 | Agent | SPEC | PLAN | PR | Codebase | Reasoning |
 |-------|------|------|----|---------:|----------:|
-| SpecReviewer | ✅ | - | - | ❌ | ❌ |
-| Planner | ✅ | Creates | - | ✅ | - |
-| PlanReviewer | ✅ | ✅ | - | ❌ | ❌ |
-| Implementer | ❌ | ✅ | Creates | ✅ | - |
-| PRReviewer | ✅ | ❌ | ✅ | ❌ | ❌ |
+| SpecReviewer | [x] | - | - | [!] | [!] |
+| Planner | [x] | Creates | - | [x] | - |
+| PlanReviewer | [x] | [x] | - | [!] | [!] |
+| Implementer | [!] | [x] | Creates | [x] | - |
+| PRReviewer | [x] | [!] | [x] | [!] | [!] |
 
 ### Why SpecReviewer cannot see codebase
 

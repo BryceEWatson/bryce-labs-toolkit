@@ -8,6 +8,38 @@ spec-workflow v1.0.0 · Review
 
 You are running a standalone spec-workflow review.
 
+## Review File Semantics
+
+Review files (`docs/reviews/REVIEW-*.md`) are local artifacts only. Do NOT commit them.
+Use the Write tool to create/update them; users can commit manually if desired.
+
+## Artifact Write Rules
+
+1. ALWAYS use the **Write** tool to persist REVIEW files.
+   - NEVER use Bash heredocs (`cat <<EOF`), `echo "..." >`, or `python -c "..."` to write artifact content.
+2. All generated artifacts MUST contain only ASCII characters (U+0000-U+007F).
+   - Use ASCII status markers: `[x]` (done), `[ ]` (pending), `[!]` (critical), `[~]` (warning).
+   - Do NOT use emoji: no checkmarks, crosses, colored circles, or warning triangles.
+   - Reason: Non-ASCII causes cp1252 encoding failures on Windows consoles and file I/O.
+
+## Windows + Bash Path Rules
+
+When executing Bash commands on Windows (non-WSL):
+- ALWAYS use forward-slash paths in Bash arguments
+- NEVER pass raw backslash paths (`c:\Users\...`) into Bash
+- After `cd` to the repo root, use repo-relative paths
+
+Example: `gh pr diff` (no path needed), `git diff docs/specs/SPEC-foo.md` (relative path)
+
+### Preflight (before every Bash call)
+
+Before executing ANY Bash command, verify:
+1. The command string does NOT contain `:\` or `\\` (Windows backslash paths).
+   - If found: rewrite to forward slashes (e.g., `c:\Users\Bryce` -> `c:/Users/Bryce`).
+2. If the operation needs a Windows-only command (`type`, `dir`, `del`), route through
+   `cmd /c "..."` or `powershell -NoProfile -Command "..."` instead of bare Bash.
+3. All file paths use repo-relative paths where possible (after an initial `cd`).
+
 ## Argument Parsing
 
 Determine the type of $ARGUMENTS:
@@ -54,31 +86,31 @@ Use this structure for the review:
 
 | ID | Description | Status | Location | Test |
 |----|-------------|--------|----------|------|
-| REQ-001 | {desc} | ✅ | `file:line` | `test:line` |
-| REQ-002 | {desc} | ⚠️ | `file` | Missing |
-| REQ-003 | {desc} | ❌ | - | - |
+| REQ-001 | {desc} | [x] | `file:line` | `test:line` |
+| REQ-002 | {desc} | [~] | `file` | Missing |
+| REQ-003 | {desc} | [!] | - | - |
 
 **Summary:** X/Y implemented (Z%)
 
 ## Issues
 
-### 🔴 Critical
+### [!!] Critical
 
 1. **{Issue}**
    - Location: `file:line`
    - Expected: {what}
    - Found: {what}
 
-### 🟡 Warnings
+### [~] Warnings
 
 1. **{Issue}**
    - Recommendation: {fix}
 
 ## Verdict
 
-- [ ] ✅ Approved
-- [ ] ⚠️ Changes Requested
-- [ ] ❌ Rejected
+- [ ] [x] Approved
+- [ ] [~] Changes Requested
+- [ ] [!] Rejected
 
 ## Notes for Tester
 
