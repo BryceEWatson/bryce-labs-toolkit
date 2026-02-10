@@ -70,9 +70,14 @@ Before submitting a pull request, run these checks:
 
 ### Skill Integrity
 
-If you modified or added skills, verify they match the source:
+If you modified or added skills, verify installed copies match the source.
+This requires skills to be installed first (a clean clone won't have `.claude/skills/`):
 
 ```bash
+# Bootstrap: install all skills locally (one-time after clone)
+./tools/skills-sync --project . --all
+
+# Then verify installed copies match source
 ./tools/skills-sync --project . --all --check
 ```
 
