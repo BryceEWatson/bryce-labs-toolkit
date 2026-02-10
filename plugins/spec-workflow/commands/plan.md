@@ -13,9 +13,33 @@ You are running the standalone plan generation stage.
 Review files (`docs/reviews/REVIEW-*.md`) are local artifacts only. Do NOT commit them.
 Use the Write tool to create/update them; users can commit manually if desired.
 
+## Windows + Bash Path Rules
+
+When executing Bash commands on Windows (non-WSL):
+- ALWAYS use forward-slash paths: `"c:/Users/Bryce/Projects/bryce-labs-toolkit"`
+- NEVER use `/mnt/c/...` unless the environment is confirmed to be WSL
+- NEVER pass raw backslash paths (`c:\Users\...`) into Bash — backslashes are stripped or misinterpreted
+- After `cd` to the repo root, use repo-relative paths for all subsequent commands
+
+Canonical examples:
+- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && ls tools/`
+- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json','utf8'))"`
+
+## Tool Error Retry Rules
+
+If a Bash call errors with `<tool_use_error>` or fails unexpectedly:
+1. Retry ONCE with a simpler command:
+   - Remove command chaining (no `&&`) — run one command per Bash call
+   - Use repo-relative paths after a separate `cd`
+   - Avoid `find` with Windows backslash paths
+2. Do NOT issue consecutive Bash calls without reading/handling the previous result
+3. Prefer one Bash call per step to minimize concurrency errors
+
 ## Argument Parsing
 
-Determine the type of $ARGUMENTS:
+First, check if `$ARGUMENTS` contains `--quiet-gates`. If so, set QUIET_GATES = true and remove the flag from the text. Otherwise, QUIET_GATES = false.
+
+Determine the type of the remaining arguments:
 
 1. **File path** (contains `/` or `\` or ends in `.md`):
    - SPEC_PATH = $ARGUMENTS
@@ -153,7 +177,15 @@ Save all plan-reviewer iteration outputs to `docs/reviews/REVIEW-PLAN-{FEATURE_N
 
 ## Step 5: Present Results
 
-Print the following IN ORDER:
+**If QUIET_GATES is enabled**, print only:
+- **Plan:** `docs/plans/PLAN-{FEATURE_NAME}.md`
+- **Review:** `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`
+- **Latest:** {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+- Use the gate options below to review or open in VS Code.
+
+Then skip directly to step **4** (AskUserQuestion) below.
+
+**Otherwise (default)**, print the following IN ORDER:
 
 **1. Summary table:**
 

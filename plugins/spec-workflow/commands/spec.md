@@ -14,9 +14,10 @@ This command runs three phases with user approval gates between them.
 ## State Tracking
 
 Track these values throughout the pipeline:
-- FEATURE_NAME: derived from $ARGUMENTS (kebab-case, e.g., "dark-mode-toggle")
+- FEATURE_NAME: derived from FEATURE_REQUEST (kebab-case, e.g., "dark-mode-toggle")
 - SPEC_PATH: docs/specs/SPEC-{FEATURE_NAME}.md
 - PLAN_PATH: docs/plans/PLAN-{FEATURE_NAME}.md
+- QUIET_GATES: boolean flag parsed from $ARGUMENTS (default false)
 
 ## Approval Gates
 
@@ -35,11 +36,40 @@ Use the Write tool to create/update them; users can commit manually if desired.
 Only YOU (the orchestrator) may ask the user clarifying questions, and only in Phase 1.
 Subagents work autonomously with the inputs they receive — they never prompt the user.
 
+## Argument Parsing
+
+Parse `$ARGUMENTS` for optional flags before deriving FEATURE_NAME:
+- If `$ARGUMENTS` contains `--quiet-gates`, set QUIET_GATES = true and remove the flag from the text.
+- The remaining text becomes FEATURE_REQUEST.
+- FEATURE_NAME = kebab-case(FEATURE_REQUEST)
+
+## Windows + Bash Path Rules
+
+When executing Bash commands on Windows (non-WSL):
+- ALWAYS use forward-slash paths: `"c:/Users/Bryce/Projects/bryce-labs-toolkit"`
+- NEVER use `/mnt/c/...` unless the environment is confirmed to be WSL
+- NEVER pass raw backslash paths (`c:\Users\...`) into Bash — backslashes are stripped or misinterpreted
+- After `cd` to the repo root, use repo-relative paths for all subsequent commands
+
+Canonical examples:
+- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && ls tools/`
+- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json','utf8'))"`
+
+## Tool Error Retry Rules
+
+If a Bash call errors with `<tool_use_error>` or fails unexpectedly:
+1. Retry ONCE with a simpler command:
+   - Remove command chaining (no `&&`) — run one command per Bash call
+   - Use repo-relative paths after a separate `cd`
+   - Avoid `find` with Windows backslash paths
+2. Do NOT issue consecutive Bash calls without reading/handling the previous result
+3. Prefer one Bash call per step to minimize concurrency errors
+
 ────────────────────────────────────────
 PHASE 1: GENERATE SPECIFICATION
 ────────────────────────────────────────
 
-Feature request: $ARGUMENTS
+Feature request: FEATURE_REQUEST (parsed from $ARGUMENTS; see Argument Parsing above)
 
 ### Spec Template
 
@@ -82,6 +112,10 @@ Use this structure for the output:
 
 - {exclusion}
 
+### Housekeeping Notes (Non-Binding)
+
+- {Observations about out-of-scope files (e.g., .gitignore gaps, build script issues) — captured for reference, not tracked as requirements. Omit section if none found.}
+
 ## Open Questions
 
 - [ ] {question}
@@ -100,6 +134,16 @@ Use this structure for the output:
 5. Use SHALL for mandatory, SHOULD for recommended (RFC 2119)
 6. Preserve existing IDs during revision
 7. Save to SPEC_PATH
+
+### Scope Guard
+
+Before generating requirements, determine allowed targets based on the user's feature request:
+1. Identify which file types/paths are in scope (e.g., `.md` files, specific config files explicitly named in the request).
+2. Requirements (REQ-*) MUST only target in-scope files and behaviors.
+3. If a gap is found in out-of-scope files (e.g., `.gitignore`, build scripts, unrelated code):
+   - Do NOT create REQ items for them.
+   - Record them under the "Housekeeping Notes (Non-Binding)" subsection in the spec's Out of Scope section.
+4. This prevents scope creep while still capturing useful findings.
 
 ### Internal Spec Review (Mandatory)
 
@@ -143,7 +187,17 @@ Save all iteration outputs to `docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md` using
 
 ### Phase 1 Gate
 
-After saving the spec and completing the internal review, print the following IN ORDER:
+After saving the spec and completing the internal review:
+
+**If QUIET_GATES is enabled**, print only:
+- **Spec:** `{SPEC_PATH}`
+- **Review:** `docs/reviews/REVIEW-SPEC-{FEATURE_NAME}.md`
+- **Latest:** {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+- Use the gate options below to review or open in VS Code.
+
+Then skip directly to step **4** (AskUserQuestion) below.
+
+**Otherwise (default)**, print the following IN ORDER:
 
 **1. Summary table:**
 
@@ -294,7 +348,15 @@ Save all plan-reviewer iteration outputs to `docs/reviews/REVIEW-PLAN-{FEATURE_N
 
 ### Phase 2 Gate
 
-Print the following IN ORDER:
+**If QUIET_GATES is enabled**, print only:
+- **Plan:** `{PLAN_PATH}`
+- **Review:** `docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md`
+- **Latest:** {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX})
+- Use the gate options below to review or open in VS Code.
+
+Then skip directly to step **4** (AskUserQuestion) below.
+
+**Otherwise (default)**, print the following IN ORDER:
 
 **1. Summary table:**
 

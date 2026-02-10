@@ -52,6 +52,17 @@ A single command runs the entire pipeline, pausing for your approval between sta
 #   → asks approval → implements (with PR review loop) → presents PR
 ```
 
+#### Quiet Gates Mode
+
+Use `--quiet-gates` to reduce pre-gate output. Instead of printing full summary tables
+and excerpts before each approval gate, only artifact paths and the latest review verdict
+are shown. The modal options still provide full review access.
+
+```bash
+/spec-workflow:spec --quiet-gates "Add user authentication"
+/spec-workflow:plan --quiet-gates docs/specs/SPEC-user-auth.md
+```
+
 ### Individual Stages
 
 Each stage can still be invoked standalone:
