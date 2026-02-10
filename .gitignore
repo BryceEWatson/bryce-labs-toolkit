@@ -26,6 +26,8 @@ Thumbs.db
 # Claude Code logs (never commit)
 # Local .claude directory
 .claude/projects/
+.claude/settings.local.json
+.claude/skills/
 # Catch any copied/pasted log directories
 **/.claude/projects/
 **/claude-code-logs/
@@ -47,7 +49,18 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
+# Python
+__pycache__/
+*.pyc
+
 # Temp files
 tmp/
 temp/
 *.tmp
+.test-*
+
+# Windows artifacts
+nul
+
+# Local investigation artifacts (never commit)
+docs/**/LOCAL_*
