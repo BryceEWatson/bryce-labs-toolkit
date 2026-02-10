@@ -17,10 +17,10 @@ Use the Write tool to create/update them; users can commit manually if desired.
 
 1. ALWAYS use the **Write** tool to persist PLAN and REVIEW files.
    - NEVER use Bash heredocs (`cat <<EOF`), `echo "..." >`, or `python -c "..."` to write artifact content.
-2. All generated artifacts MUST contain only ASCII characters (U+0000-U+007F).
-   - Use ASCII status markers: `[x]` (done), `[ ]` (pending), `[!]` (critical), `[~]` (warning).
+2. All generated artifacts MUST be UTF-8. Avoid emoji and non-ASCII status symbols.
+   - Use these ASCII status markers: `[x]` (done), `[ ]` (pending), `[!]` (critical), `[~]` (warning).
    - Do NOT use emoji: no checkmarks, crosses, colored circles, or warning triangles.
-   - Reason: Non-ASCII causes cp1252 encoding failures on Windows consoles and file I/O.
+   - Reason: Emoji and special symbols cause cp1252 encoding failures on Windows.
 
 ## Windows + Bash Path Rules
 

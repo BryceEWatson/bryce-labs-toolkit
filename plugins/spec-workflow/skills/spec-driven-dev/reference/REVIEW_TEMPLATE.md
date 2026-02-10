@@ -30,9 +30,9 @@
 
 ## Verdict
 
-- [ ] [x] Approved
-- [ ] [~] Changes Requested
-- [ ] [!] Rejected
+- [ ] Approved
+- [ ] Changes Requested
+- [ ] Rejected
 
 ## Notes for Tester
 

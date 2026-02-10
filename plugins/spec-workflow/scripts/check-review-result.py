@@ -30,7 +30,7 @@ def read_transcript(transcript_path: str) -> str:
 
     content_parts = []
     try:
-        with open(transcript_path, 'r') as f:
+        with open(transcript_path, 'r', encoding='utf-8', errors='replace') as f:
             for line in f:
                 try:
                     entry = json.loads(line.strip())

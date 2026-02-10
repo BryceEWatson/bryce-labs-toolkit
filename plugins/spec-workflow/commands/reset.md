@@ -9,15 +9,6 @@ spec-workflow v1.0.0 · Reset
 You are running the spec-workflow artifact reset command.
 This removes generated specs, plans, and reviews to start from a clean slate.
 
-## Artifact Write Rules
-
-1. ALWAYS use the **Write** tool to persist any output files.
-   - NEVER use Bash heredocs (`cat <<EOF`), `echo "..." >`, or `python -c "..."` to write artifact content.
-2. All generated artifacts MUST contain only ASCII characters (U+0000-U+007F).
-   - Use ASCII status markers: `[x]` (done), `[ ]` (pending), `[!]` (critical), `[~]` (warning).
-   - Do NOT use emoji: no checkmarks, crosses, colored circles, or warning triangles.
-   - Reason: Non-ASCII causes cp1252 encoding failures on Windows consoles and file I/O.
-
 ## Windows + Bash Path Rules
 
 When executing Bash commands on Windows (non-WSL):
