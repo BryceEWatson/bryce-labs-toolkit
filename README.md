@@ -96,6 +96,9 @@ New-Item -ItemType SymbolicLink -Path "C:\path\to\your-project\.claude\skills\le
 
 ```
 bryce-labs-toolkit/
+  .claude/                # Claude Code configuration (partially tracked)
+    commands/             # Custom commands (git-tracked)
+    skills/               # Pre-installed skills (gitignored)
   plugins/                # Claude Code plugins
     spec-workflow/        # Spec-driven development workflow
   skills/                 # Claude Code skills
@@ -116,6 +119,13 @@ bryce-labs-toolkit/
     lessons-extractor-reset.sh     # Lessons-extractor reset (POSIX)
     lessons-extractor-reset.cmd    # Lessons-extractor reset (Windows)
   docs/                   # Documentation
+    specs/                # Specification documents
+    plans/                # Implementation plans
+    reviews/              # Review artifacts
+    ai/                   # AI-generated artifacts
+      lessons-extractor/  # Extracted lessons
+    reference/            # Reference docs
+    story-miner/          # Story-miner documentation
 ```
 
 See [docs/reference/repo-layout.md](docs/reference/repo-layout.md) for details.

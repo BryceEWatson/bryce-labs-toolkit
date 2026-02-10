@@ -13,6 +13,12 @@ bryce-labs-toolkit/
   .gitignore              # Git ignore patterns
   .claude-plugin/         # Marketplace configuration
     marketplace.json      # Plugin registry for Claude Code marketplace
+  .claude/                # Claude Code local configuration
+    commands/             # Custom command definitions (git-tracked)
+      cleanup.md          # Cleanup skill command
+    settings.local.json   # Local settings (gitignored)
+    skills/               # Pre-installed skill copies (gitignored, see note below)
+      story-miner/        # Bootstrapped for toolkit development
 
   plugins/                # Claude Code plugins
     spec-workflow/        # Spec-driven development workflow
@@ -90,12 +96,33 @@ bryce-labs-toolkit/
 
   docs/                   # Documentation
     index.md              # Docs landing page
+    specs/                # Specification documents (SPEC-*.md)
+      .gitkeep
+    plans/                # Implementation plans (PLAN-*.md)
+      .gitkeep
+    reviews/              # Review artifacts (REVIEW-*.md)
+      .gitkeep
+    ai/                   # AI-generated artifacts
+      lessons-extractor/  # Extracted lessons
+        .gitkeep
     reference/            # Reference documentation
       repo-layout.md      # This file
       artifact-contract.md  # Reset command contract
     story-miner/          # Story-miner documentation
       IMPLEMENTATION_PLAN.md  # Development roadmap
 ```
+
+### Notes on .claude/ Directory
+
+The `.claude/` directory contains both git-tracked and gitignored files:
+
+- **Tracked:** `commands/cleanup.md` -- provides a default cleanup command for the toolkit
+- **Gitignored:** `settings.local.json` -- user-specific local settings
+- **Gitignored:** `skills/` -- pre-installed skill copies placed by `skills-sync`
+
+The `skills/` subdirectory is gitignored because installed skills are derived from `skills/` (the source directory). Use `tools/skills-sync` to install or update skills. The installed copies exist for local development convenience and should not be committed.
+
+> **Implementation note:** The spec (REQ-004) lists `settings.local.json` and `skills/story-miner/` as "tracked contents" of `.claude/`. In reality, only `commands/cleanup.md` is git-tracked; the others are gitignored per `.gitignore`. The tree diagram includes all items from the spec but annotates their actual git status for accuracy.
 
 ## Design Principles
 

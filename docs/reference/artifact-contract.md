@@ -10,6 +10,18 @@ Tools that generate output files follow a standard reset contract for safe clean
 | story-miner | `.story-miner/` | Entire directory contents |
 | lessons-extractor | `docs/ai/lessons-extractor/` | Entire directory contents |
 
+## Why .gitkeep Files Exist
+
+Git does not track empty directories. When a directory is empty (no files), it is silently dropped on clone. To preserve the expected directory layout, each output directory contains a `.gitkeep` marker file.
+
+- Reset scripts must never delete `.gitkeep` files
+- New output directories should include `.gitkeep` and track it in git
+- The file itself is empty -- its name is a convention, not a git feature
+
+## Review Artifacts
+
+The spec-workflow pipeline generates review files (`REVIEW-SPEC-*.md`, `REVIEW-PLAN-*.md`, `REVIEW-PR-*.md`) in `docs/reviews/`. These files are local review artifacts produced during the spec-workflow pipeline. The pipeline does not auto-commit them. Users may choose to commit review files for audit purposes or leave them as local-only artifacts.
+
 ## Reset Expectations
 
 Every reset implementation must support:

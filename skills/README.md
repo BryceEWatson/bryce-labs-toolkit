@@ -192,4 +192,14 @@ Before committing, run the Windows-safety lint check:
 ./tools/lint-skills.sh .claude/skills/lessons-extractor
 ```
 
+### What the Linter Checks
+
+The linter detects bare `$` variable references in PowerShell command strings. These references break when the command is invoked through Git Bash on Windows, because Bash expands `$` patterns before PowerShell receives them.
+
+| Pattern | Problem | Fix |
+|---------|---------|-----|
+| `$env:VAR` | Bash expands `$env` to empty string | Use single quotes or escape: `\$env:VAR` |
+| `$_` | Bash expands as last background PID | Escape: `\$_` |
+| `$(expr)` | Bash runs command substitution | Escape: `\$(expr)` |
+
 This ensures PowerShell commands don't use `$` patterns that break when invoked through Git Bash.
