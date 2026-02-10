@@ -142,7 +142,7 @@ Before generating requirements, determine allowed targets based on the user's fe
 2. Requirements (REQ-*) MUST only target in-scope files and behaviors.
 3. If a gap is found in out-of-scope files (e.g., `.gitignore`, build scripts, unrelated code):
    - Do NOT create REQ items for them.
-   - Record them under the "Housekeeping Notes (Non-Binding)" subsection in the spec's Out of Scope section.
+   - Record them in the spec's "Out of Scope → Housekeeping Notes (Non-Binding)" subsection.
 4. This prevents scope creep while still capturing useful findings.
 
 ### Internal Spec Review (Mandatory)
