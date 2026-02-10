@@ -50,13 +50,24 @@ This isolation ensures unbiased review.
 
 ## Output Format
 
+Your review MUST always include these two sections (even when approved):
+
+### Must-Fix
+Bullet list of items that MUST be fixed before approval, or `- None` if there are none.
+
+### Should-Fix
+Bullet list of recommended improvements, or `- None` if there are none.
+
 **If gaps found:**
 ```
 ## Plan Review: GAPS IDENTIFIED
 
-### Missing Coverage
-- REQ-003: No task maps to this
-- AC-005: No test specified
+### Must-Fix
+- REQ-003: No task maps to this requirement
+- AC-005: No test specified for this acceptance criterion
+
+### Should-Fix
+- TASK-002: Consider adding error handling for edge case
 
 ### Recommendation
 REVISE plan to address gaps.
@@ -68,6 +79,12 @@ REVISE plan to address gaps.
 
 Coverage: 8/8 requirements (100%)
 Tests: 12/12 acceptance criteria (100%)
+
+### Must-Fix
+- None
+
+### Should-Fix
+- None
 
 ✅ PLAN APPROVED - Ready for user review
 ```

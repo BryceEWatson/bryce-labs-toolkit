@@ -229,7 +229,15 @@ OPTIONS (each option MUST have both label and description):
   Description: "Reviewer: {LATEST_SUMMARY}. Plan approved and finalized. Run /spec-workflow:implement to begin implementation. Coverage: REQ {REQ_MAPPED}/{REQ_TOTAL}, AC {AC_MAPPED}/{AC_TOTAL}, NFR {NFR_MAPPED}/{NFR_TOTAL}. Tasks: {TASK_COUNT} total."
 
 - Label: "Request revisions"
-  Description: "Revise the plan based on feedback, re-run plan-reviewer, then re-present this gate."
+  Description: "Last review: {LATEST_VERDICT} (must_fix={MUST_FIX}, should_fix={SHOULD_FIX}). Summary: {LATEST_SUMMARY}. Reviewer requested: {REQUESTED_REVISIONS_SNIPPET}. Selecting this will revise the plan, re-run plan-reviewer, then re-present this gate."
+
+  REQUESTED_REVISIONS_SNIPPET derivation:
+  - If MUST_FIX==0 AND SHOULD_FIX==0: use "None (approved)."
+  - Else: extract from the latest plan-reviewer full output:
+    - Up to 3 bullets from the "### Must-Fix" section
+    - Up to 3 bullets from the "### Should-Fix" section
+    - Format as a compact inline list, e.g., "Must-fix: REQ-003 unmapped, AC-005 no test. Should-fix: TASK-002 add error handling."
+    - If "### Must-Fix" or "### Should-Fix" sections are missing in the reviewer output, fall back to: "See Summary above; open the review log for details."
 
 - Label: "Review now (open in VS Code)"
   Description: "Opens plan and review log in VS Code for review. This gate re-appears after. Plan: docs/plans/PLAN-{FEATURE_NAME}.md. Review: docs/reviews/REVIEW-PLAN-{FEATURE_NAME}.md. Fallback (CMD): type docs\plans\PLAN-{FEATURE_NAME}.md"
