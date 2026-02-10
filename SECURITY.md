@@ -11,7 +11,7 @@ If you discover a security vulnerability, please report it by:
 
 ### Log Processing
 
-The `lessons-extractor` skill processes Claude Code session logs which may contain:
+The `lessons-extractor` and `story-miner` skills process Claude Code session logs which may contain:
 
 - API keys and tokens
 - Passwords and secrets
@@ -34,6 +34,16 @@ The skill applies regex patterns to redact:
 - User home directory paths
 
 These patterns are best-effort. Always manually review extracted lessons for sensitive information.
+
+### Story-Miner Extended Security
+
+The `story-miner` skill applies additional security measures beyond `lessons-extractor`:
+
+- **Extended redaction**: At least 17 redaction patterns (compared to lessons-extractor's 7), covering GitHub PATs, GitLab PATs, Slack tokens, API keys, JWTs, PEM blocks, AWS keys, auth headers, cookies, and connection strings
+- **Post-pipeline output scanner**: Scans ALL output files after generation, detecting leaked secrets, PII, and thinking-block attribution violations
+- **Fail-on-detection**: Scanner exits with error code if findings are detected — never silently fixes
+
+Users should apply the same review practices to story-miner outputs as lessons-extractor outputs.
 
 ## Best Practices
 

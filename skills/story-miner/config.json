@@ -92,7 +92,10 @@
       { "pattern": "interaction between", "signal": "subtle_interaction", "weight": 0.7 },
       { "pattern": "edge case", "signal": "edge_case", "weight": 0.65 },
       { "pattern": "workaround", "signal": "technique", "weight": 0.6 },
-      { "pattern": "I've confirmed", "signal": "confirmation", "weight": 0.5 }
+      { "pattern": "I've confirmed", "signal": "confirmation", "weight": 0.5 },
+      { "pattern": "(approach|strategy|method) (is|was|works|worked)", "signal": "technique", "weight": 0.7 },
+      { "pattern": "(configured|set up|integrated) .+ (tool|workflow|pipeline)", "signal": "tooling_insight", "weight": 0.7 },
+      { "pattern": "(pattern|architecture|design) (decision|choice)", "signal": "design_pattern", "weight": 0.7 }
     ],
     "structuralValidation": {
       "minConcreteNouns": 2

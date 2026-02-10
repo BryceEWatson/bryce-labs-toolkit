@@ -74,7 +74,8 @@ Each candidate MUST pass structural checks:
 2. **Twist or Root Cause** (hasTwist: true/false)
    - Contains non-obvious discovery
    - At least 1 story signal in evidence events
-   - Signal types: root_cause, aha_moment, subtle_bug, unexpected_interaction, counterintuitive_fix
+   - Signal types: root_cause, aha_moment, subtle_bug, unexpected_interaction, counterintuitive_fix, technique, tooling_insight, design_pattern, insight
+   - Consider whether incidents involving tool configuration, development methodology, or architectural decisions might qualify as `technique`, `tooling`, or `pattern` rather than defaulting to `bug`
 
 3. **Fix or Resolution** (hasFix: true/false)
    - Evidence events include a tool_call AFTER the signal event, OR

@@ -22,6 +22,18 @@
       "source": "./skills/lessons-extractor",
       "description": "Extract lessons from Claude Code sessions",
       "version": "1.0.0"
+    },
+    {
+      "name": "cleanup",
+      "source": "./skills/cleanup",
+      "description": "Post-merge git branch cleanup with safety checks",
+      "version": "1.0.0"
+    },
+    {
+      "name": "story-miner",
+      "source": "./skills/story-miner",
+      "description": "Mine Claude Code session history for publishable development stories",
+      "version": "1.0.0"
     }
   ]
 }

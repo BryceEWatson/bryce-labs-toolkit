@@ -73,9 +73,12 @@ Full narrative document containing all stories with complete metadata.
 
 {narrative}
 
-{FOR EACH QUOTE:}
+{FOR EACH QUOTE where the quote text does NOT substantially appear in the narrative above:}
 > "{quote.text}"
 > -- {quote.attribution}, `[{quote.provenance.pointer}]`
+
+{IF all quotes substantially appear in the narrative, omit the Quotes
+blockquotes entirely — the inline citations are sufficient.}
 
 **Claims:**
 
@@ -389,13 +392,13 @@ Machine-readable index for programmatic access.
    - Build tags object (top 50)
    - Build topStories array (top 10)
 
-## Metadata Source Placeholders
+## Pipeline Metadata
 
-Since you don't have direct access to pipeline metadata, use placeholders:
+Use the pipeline metadata counts provided alongside stories.jsonl:
 
-- **Preprocessor version**: "1.0.0" (or read from package.json if available)
-- **Story-miner version**: "1.0.0" (or read from package.json if available)
-- **Candidates evaluated**: Sum of `mergedFrom` array lengths across all stories
+- **Candidates evaluated**: Use the `candidatesEvaluated` count from pipeline metadata
+- **Candidates promoted**: Use `candidatesPromoted` from pipeline metadata
+- **Candidates rejected**: Use `candidatesRejected` from pipeline metadata
 - **Sessions analyzed**: Count unique sessionIds from story provenance pointers
 
 ## Quality Standards
