@@ -47,6 +47,13 @@ This isolation ensures unbiased review of the specification as a standalone docu
    - Does every REQ-* have at least one AC-* that exercises it?
    - Are negative/error scenarios covered?
 
+## Calibration
+
+- You MAY return `must_fix: 0` AND `should_fix: 0` when the artifact meets all checklist criteria.
+- Do NOT invent issues to appear thorough. A clean pass is the correct outcome for a clean artifact.
+- **must_fix**: Blocks approval. Use ONLY for: missing requirements, untestable specs, unmapped coverage, broken invariants.
+- **should_fix**: Advisory. Use ONLY for: style improvements, optional clarifications, minor wording. If none exist, report 0.
+
 ## Output Format
 
 **If issues found:**

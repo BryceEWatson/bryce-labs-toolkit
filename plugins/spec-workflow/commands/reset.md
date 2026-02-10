@@ -9,6 +9,37 @@ spec-workflow v1.0.0 · Reset
 You are running the spec-workflow artifact reset command.
 This removes generated specs, plans, and reviews to start from a clean slate.
 
+## Windows + Bash Path Rules
+
+When executing Bash commands on Windows (non-WSL):
+- ALWAYS use forward-slash paths: `"c:/Users/Bryce/Projects/bryce-labs-toolkit"`
+- NEVER use `/mnt/c/...` unless the environment is confirmed to be WSL
+- NEVER pass raw backslash paths (`c:\Users\...`) into Bash — backslashes are stripped or misinterpreted
+- After `cd` to the repo root, use repo-relative paths for all subsequent commands
+
+Canonical examples:
+- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && ls tools/`
+- `./tools/spec-workflow-reset.sh --force`
+
+### Preflight (before every Bash call)
+
+Before executing ANY Bash command, verify:
+1. The command string does NOT contain `:\` or `\\` (Windows backslash paths).
+   - If found: rewrite to forward slashes (e.g., `c:\Users\Bryce` -> `c:/Users/Bryce`).
+2. If the operation needs a Windows-only command (`type`, `dir`, `del`), route through
+   `cmd /c "..."` or `powershell -NoProfile -Command "..."` instead of bare Bash.
+3. All file paths use repo-relative paths where possible (after an initial `cd`).
+
+## Tool Error Retry Rules
+
+If a Bash call errors with `<tool_use_error>` or fails unexpectedly:
+1. Retry ONCE with a simpler command:
+   - Remove command chaining (no `&&`) — run one command per Bash call
+   - Use repo-relative paths after a separate `cd`
+   - Avoid `find` with Windows backslash paths
+2. Do NOT issue consecutive Bash calls without reading/handling the previous result
+3. Prefer one Bash call per step to minimize concurrency errors
+
 ## Argument Parsing
 
 Parse `$ARGUMENTS` for these flags:

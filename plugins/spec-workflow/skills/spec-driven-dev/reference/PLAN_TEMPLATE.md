@@ -13,8 +13,8 @@
 
 | Spec ID | Task ID(s) | Status |
 |---------|------------|--------|
-| REQ-001 | TASK-001 | ✅ Mapped |
-| AC-001 | TASK-001 (test) | ✅ Mapped |
+| REQ-001 | TASK-001 | [x] Mapped |
+| AC-001 | TASK-001 (test) | [x] Mapped |
 
 **Coverage:** X/X (100%)
 

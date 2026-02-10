@@ -52,6 +52,13 @@ Checking against SPEC catches cases where plan misunderstood spec.
    - Does test exist?
    - Does test pass?
 
+## Calibration
+
+- You MAY return `must_fix: 0` AND `should_fix: 0` when the artifact meets all checklist criteria.
+- Do NOT invent issues to appear thorough. A clean pass is the correct outcome for a clean artifact.
+- **must_fix**: Blocks approval. Use ONLY for: missing requirements, untestable specs, unmapped coverage, broken invariants.
+- **should_fix**: Advisory. Use ONLY for: style improvements, optional clarifications, minor wording. If none exist, report 0.
+
 ## Output Format
 
 ```markdown
@@ -60,15 +67,15 @@ Checking against SPEC catches cases where plan misunderstood spec.
 ## Coverage Matrix
 | ID | Description | Status | Location | Test |
 |----|-------------|--------|----------|------|
-| REQ-001 | User login | ✅ | src/auth.ts:45 | tests/auth.test.ts:23 |
-| REQ-002 | Session | ⚠️ | partial | missing timeout test |
+| REQ-001 | User login | [x] | src/auth.ts:45 | tests/auth.test.ts:23 |
+| REQ-002 | Session | [~] | partial | missing timeout test |
 
 ## Issues
 
-### 🔴 Critical
+### [!!] Critical
 - REQ-003 not implemented
 
-### 🟡 Warnings
+### [~] Warnings
 - Missing test for AC-005
 
 ## Verdict
@@ -78,7 +85,7 @@ Checking against SPEC catches cases where plan misunderstood spec.
 Or if passing:
 ```
 ## Verdict
-**✅ Approved** - All requirements implemented
+**[x] Approved** - All requirements implemented
 
 ## Notes for Tester
 - Test login with valid/invalid credentials
