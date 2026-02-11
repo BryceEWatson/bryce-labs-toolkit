@@ -36,6 +36,11 @@ Thumbs.db
 # Uncomment if you want to exclude by default:
 # docs/ai/lessons-extractor/lessons.jsonl
 
+# Spec-workflow artifacts (local pipeline outputs, not committed)
+docs/specs/SPEC-*.md
+docs/plans/PLAN-*.md
+docs/reviews/REVIEW-*.md
+
 # Story-miner outputs (personal artifacts, never commit)
 .story-miner/
 
