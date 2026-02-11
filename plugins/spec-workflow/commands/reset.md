@@ -18,8 +18,8 @@ When executing Bash commands on Windows (non-WSL):
 - After `cd` to the repo root, use repo-relative paths for all subsequent commands
 
 Canonical examples:
-- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && ls tools/`
-- `./tools/spec-workflow-reset.sh --force`
+- `cd "c:/Users/Bryce/Projects/bryce-labs-toolkit" && ls docs/specs/`
+- `/spec-workflow:reset --force`
 
 ### Preflight (before every Bash call)
 
@@ -90,9 +90,9 @@ And stop.
 If `--dry-run` is in `$ARGUMENTS`:
 - Print `[dry-run] No files were deleted.`
 - Print how to re-run without dry-run:
-  - `./tools/spec-workflow-reset.sh --force` (Git Bash / macOS / Linux)
-  - `tools\spec-workflow-reset.cmd --force` (Windows CMD)
   - `/spec-workflow:reset --force` (Claude Code)
+  - `./tools/spec-workflow-reset.sh --force` (if this repo has tools/)
+  - `tools\spec-workflow-reset.cmd --force` (if this repo has tools/)
 - Stop. Do NOT delete anything.
 
 ## Step 4: Confirmation
@@ -121,23 +121,24 @@ If user selects "Cancel" or provides free text that isn't clearly "delete" or "y
 
 ## Step 5: Execute Deletion
 
-Build the script command by forwarding all parsed flags from `$ARGUMENTS`:
+Delete the files discovered in Step 1 directly via Bash. Do NOT delegate to external scripts.
 
+**Safety guard** (before executing any deletion):
+- Assert every path in the file list starts with `docs/specs/`, `docs/plans/`, or `docs/reviews/`
+- Assert no path contains `..` segments
+- Skip any path that fails these checks and print a warning
+
+**Deletion command:**
+
+Use a single batch `rm` with all discovered files (forward-slash, repo-relative paths):
 ```
-./tools/spec-workflow-reset.sh --force [--feature <name> if provided]
+rm -f -- "docs/specs/SPEC-dark-mode.md" "docs/plans/PLAN-dark-mode.md" "docs/reviews/REVIEW-SPEC-dark-mode.md"
 ```
 
-**Flag forwarding rules** (you MUST follow these exactly):
-- Always include `--force` (confirmation was already handled in Step 4)
-- If `--feature <name>` was in `$ARGUMENTS`, append `--feature <name>` to the script command
-- Do NOT include `--dry-run` (that case was already handled in Step 3)
-
-**Examples:**
-- `$ARGUMENTS` = "" → `./tools/spec-workflow-reset.sh --force`
-- `$ARGUMENTS` = "--feature dark-mode" → `./tools/spec-workflow-reset.sh --force --feature dark-mode`
-- `$ARGUMENTS` = "--force --feature dark-mode" → `./tools/spec-workflow-reset.sh --force --feature dark-mode`
-
-Run via Bash.
+**Invariants:**
+- NEVER delete `.gitkeep` files (already excluded by Glob patterns in Step 1)
+- NEVER remove directories
+- Track the count of successfully deleted files for Step 6
 
 ## Step 6: Summary
 

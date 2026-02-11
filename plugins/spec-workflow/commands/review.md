@@ -1,7 +1,7 @@
 ---
 description: Manually trigger PR review against specification
 argument-hint: "[path-to-spec.md]"
-allowed-tools: Read, Grep, Glob, Bash(gh *, git *, npm test, pytest), Write, Task
+allowed-tools: Read, Grep, Glob, Bash(gh pr view *, gh pr diff *, gh pr checks *, git status, git log *, git diff *, git show *, git branch, npm test, pytest), Write, Task
 ---
 
 spec-workflow v1.0.0 · Review

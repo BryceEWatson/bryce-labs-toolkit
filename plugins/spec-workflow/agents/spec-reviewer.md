@@ -56,6 +56,14 @@ This isolation ensures unbiased review of the specification as a standalone docu
 
 ## Output Format
 
+Your review MUST always include these two sections (even when approved):
+
+### Must-Fix
+Bullet list of items that MUST be fixed before approval, or `- None` if there are none.
+
+### Should-Fix
+Bullet list of recommended improvements, or `- None` if there are none.
+
 **If issues found:**
 ```
 ## Spec Review: ISSUES IDENTIFIED
@@ -81,7 +89,13 @@ AC Coverage: 8/8 REQ covered by AC
 RFC 2119: Consistent
 Ambiguity: None detected
 
-SPEC APPROVED - Ready for user review
+### Must-Fix
+- None
+
+### Should-Fix
+- None
+
+[x] SPEC APPROVED - Ready for user review
 ```
 
 ## Mandatory Decision Line

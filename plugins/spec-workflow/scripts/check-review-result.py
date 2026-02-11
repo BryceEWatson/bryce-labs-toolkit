@@ -17,6 +17,8 @@ Output (to stdout): JSON decision:
   - {"decision": "approve", "reason": "..."} - Allow agent to stop
   - {"decision": "block", "reason": "..."} - Continue the review loop
 """
+from __future__ import annotations
+
 import json
 import sys
 import os
