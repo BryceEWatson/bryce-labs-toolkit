@@ -43,6 +43,33 @@ Spec-driven development with automated review loops (Specification -> Planning -
 
 - [README](../plugins/spec-workflow/README.md) - Plugin documentation
 
+## Tools
+
+Command-line utilities for managing skills, plugins, and output artifacts.
+
+- **[skills-sync](../tools/skills-sync.js)** - Install, update, and verify skills across projects ([POSIX](../tools/skills-sync) | [Windows](../tools/skills-sync.cmd))
+- **[lint-skills](../tools/lint-skills.sh)** - Lint skills for Windows-unsafe shell patterns
+- **[spec-workflow-dev-sync](../tools/spec-workflow-dev-sync.sh)** - Sync plugin edits to Claude Code cache for local development ([Windows](../tools/spec-workflow-dev-sync.cmd))
+- **[spec-workflow-reset](../tools/spec-workflow-reset.sh)** - Reset spec-workflow artifacts (specs, plans, reviews) ([Windows](../tools/spec-workflow-reset.cmd))
+- **[story-miner-reset](../tools/story-miner-reset.sh)** - Reset story-miner output artifacts ([Windows](../tools/story-miner-reset.cmd))
+- **[lessons-extractor-reset](../tools/lessons-extractor-reset.sh)** - Reset lessons-extractor output artifacts ([Windows](../tools/lessons-extractor-reset.cmd))
+
+See [Artifact Reset Contract](reference/artifact-contract.md) for reset command behavior and safety rules.
+
+## Output Artifacts
+
+Generated files are organized into these directories:
+
+| Directory | Git Status | Purpose |
+|-----------|------------|---------|
+| `docs/specs/` | Tracked | Specification documents (SPEC-*.md) |
+| `docs/plans/` | Tracked | Implementation plans (PLAN-*.md) |
+| `docs/reviews/` | Tracked | Review artifacts (REVIEW-*.md) -- not auto-committed by pipeline |
+| `docs/ai/lessons-extractor/` | Tracked | Extracted lessons from session logs |
+| `.story-miner/` | Gitignored | Story mining artifacts -- local only |
+
+All tracked artifact directories include a `.gitkeep` file to preserve the directory structure on clone. See [Artifact Reset Contract](reference/artifact-contract.md) for cleanup procedures.
+
 ## Quick Links
 
 - [Main README](../README.md)

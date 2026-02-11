@@ -43,12 +43,43 @@ Follow conventional commits:
 3. Add prompts in `prompts/` subdirectory
 4. Add examples in `examples/` subdirectory
 5. Update the main README.md
+6. Update documentation:
+   - `docs/reference/repo-layout.md` - Add files to the repository tree diagram
+   - `docs/index.md` - Add entry in the appropriate section (Skills, Plugins, or Tools)
+   - `README.md` - Add to "What's Included" and update Repository Structure if needed
 
 ### Skill Naming Rules
 
 - Lowercase letters, numbers, and hyphens only
 - No reserved words
 - Must be descriptive
+
+## Validation
+
+Before submitting a pull request, run these checks:
+
+### Windows-Safety Lint
+
+```bash
+# Check all source skills
+./tools/lint-skills.sh
+
+# Check a specific skill
+./tools/lint-skills.sh skills/your-skill-name
+```
+
+### Skill Integrity
+
+If you modified or added skills, verify installed copies match the source.
+This requires skills to be installed first (a clean clone won't have `.claude/skills/`):
+
+```bash
+# Bootstrap: install all skills locally (one-time after clone)
+./tools/skills-sync --project . --all
+
+# Then verify installed copies match source
+./tools/skills-sync --project . --all --check
+```
 
 ## Code of Conduct
 
