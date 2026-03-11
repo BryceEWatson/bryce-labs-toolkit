@@ -15,7 +15,9 @@ bryce-labs-toolkit/
     marketplace.json      # Plugin registry for Claude Code marketplace
   .claude/                # Claude Code local configuration
     commands/             # Custom command definitions (git-tracked)
-      cleanup.md          # Cleanup skill command
+      review-session.md   # Session reviewer slash command
+      cost-report.md      # Cost tracker slash command
+      mine-sessions.md    # Transcript miner slash command
     settings.local.json   # Local settings (gitignored)
     skills/               # Pre-installed skill copies (gitignored, see note below)
       story-miner/        # Bootstrapped for toolkit development
@@ -55,12 +57,16 @@ bryce-labs-toolkit/
         git-cleanup       # POSIX shell wrapper
         git-cleanup.cmd   # Windows batch wrapper
       tests/              # pytest integration tests
+    cost-tracker/         # Token usage and cost analysis skill
+      SKILL.md            # Skill definition (YAML frontmatter + instructions)
     lessons-extractor/    # Log reflection skill
       SKILL.md            # Skill definition (YAML frontmatter + instructions)
       config.json         # Default configuration
       config.schema.json  # Configuration schema
       prompts/            # Prompt templates
       examples/           # Sample inputs/outputs
+    session-reviewer/     # Post-session QA skill
+      SKILL.md            # Skill definition (YAML frontmatter + instructions)
     story-miner/          # Session history story mining skill
       SKILL.md            # Skill definition (YAML frontmatter + instructions)
       config.json         # Default configuration
@@ -79,8 +85,13 @@ bryce-labs-toolkit/
       examples/           # Sample inputs/outputs
         sample-input.md   # Example input
         sample-output.md  # Example output
+    transcript-miner/     # Pattern extraction and decision archaeology skill
+      SKILL.md            # Skill definition (YAML frontmatter + instructions)
 
   tools/                  # CLI tools
+    parse-transcripts.js  # Session transcript parser (Node.js)
+    parse-transcripts     # POSIX wrapper
+    parse-transcripts.cmd # Windows wrapper
     skills-sync           # POSIX wrapper
     skills-sync.cmd       # Windows wrapper
     skills-sync.js        # Main script (Node.js)
@@ -94,8 +105,15 @@ bryce-labs-toolkit/
     lessons-extractor-reset.sh     # Lessons-extractor reset (POSIX)
     lessons-extractor-reset.cmd    # Lessons-extractor reset (Windows)
 
+  tests/                  # Test suite
+    fixtures/             # Test data
+      test-session.jsonl  # Synthetic session for parser tests
+    test-parser.js        # Parser unit tests
+
   docs/                   # Documentation
     index.md              # Docs landing page
+    session-analysis-skills.md      # Session analysis suite overview
+    assumption-validation-report.md # Validated architecture claims
     specs/                # Specification documents (SPEC-*.md)
       .gitkeep
     plans/                # Implementation plans (PLAN-*.md)
@@ -105,6 +123,8 @@ bryce-labs-toolkit/
     ai/                   # AI-generated artifacts
       lessons-extractor/  # Extracted lessons
         .gitkeep
+    examples/             # Templates and examples
+      invariants.example.json  # Project invariants template
     reference/            # Reference documentation
       repo-layout.md      # This file
       artifact-contract.md  # Reset command contract
@@ -116,7 +136,7 @@ bryce-labs-toolkit/
 
 The `.claude/` directory contains both git-tracked and gitignored files:
 
-- **Tracked:** `commands/cleanup.md` -- provides a default cleanup command for the toolkit
+- **Tracked:** `commands/review-session.md`, `commands/cost-report.md`, `commands/mine-sessions.md` -- session analysis slash commands
 - **Gitignored:** `settings.local.json` -- user-specific local settings
 - **Gitignored:** `skills/` -- pre-installed skill copies placed by `skills-sync`
 

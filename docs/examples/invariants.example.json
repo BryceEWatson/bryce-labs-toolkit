@@ -1,0 +1,31 @@
+{
+  "description": "Project invariants for session-reviewer. Define rules that every session's file writes are checked against.",
+  "rules": [
+    {
+      "type": "file-must-exist",
+      "path": "README.md",
+      "severity": "CRITICAL",
+      "message": "README.md must not be deleted — it's the project's primary documentation"
+    },
+    {
+      "type": "file-must-exist",
+      "path": "package.json",
+      "severity": "CRITICAL",
+      "message": "package.json must not be deleted — required for dependency management"
+    },
+    {
+      "type": "content-must-contain",
+      "path": "package.json",
+      "pattern": "\"name\":",
+      "severity": "WARNING",
+      "message": "package.json should always have a 'name' field"
+    },
+    {
+      "type": "content-must-not-contain",
+      "path": ".env",
+      "pattern": "sk-[a-zA-Z0-9]{20,}",
+      "severity": "CRITICAL",
+      "message": "No API keys (sk-*) should appear in .env — use a secrets manager or environment variables"
+    }
+  ]
+}
