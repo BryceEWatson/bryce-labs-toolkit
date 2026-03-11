@@ -1,0 +1,6 @@
+#!/bin/sh
+# parse-transcripts - Claude Code session transcript parser
+# POSIX shell wrapper for parse-transcripts.js
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$SCRIPT_DIR/parse-transcripts.js" "$@"

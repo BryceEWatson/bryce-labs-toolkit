@@ -11,8 +11,35 @@ This toolkit provides reusable Claude Code skills for AI-assisted development wo
 - [Reference](reference/)
   - [Repository Layout](reference/repo-layout.md) - Understanding the project structure
   - [Artifact Reset Contract](reference/artifact-contract.md) - Standard contract for reset commands
+- [Session Analysis](session-analysis-skills.md) - Suite overview and architecture
+- [Assumption Validation](assumption-validation-report.md) - Validated claims about session storage
+- [Examples](examples/)
+  - [invariants.example.json](examples/invariants.example.json) - Project invariants template
 
 ## Skills
+
+### Session Analysis Suite
+
+#### session-reviewer
+
+Post-session QA that reviews file writes against project invariants and safety checks.
+
+- [SKILL.md](../skills/session-reviewer/SKILL.md) - Skill definition
+- [Overview](session-analysis-skills.md) - Suite documentation
+
+#### cost-tracker
+
+Token usage and cost analysis across Claude Code sessions.
+
+- [SKILL.md](../skills/cost-tracker/SKILL.md) - Skill definition
+- [Overview](session-analysis-skills.md) - Suite documentation
+
+#### transcript-miner
+
+Pattern extraction and decision archaeology across session history.
+
+- [SKILL.md](../skills/transcript-miner/SKILL.md) - Skill definition
+- [Overview](session-analysis-skills.md) - Suite documentation
 
 ### cleanup
 
@@ -47,6 +74,7 @@ Spec-driven development with automated review loops (Specification -> Planning -
 
 Command-line utilities for managing skills, plugins, and output artifacts.
 
+- **[parse-transcripts](../tools/parse-transcripts.js)** - Parse Claude Code JSONL session transcripts ([POSIX](../tools/parse-transcripts) | [Windows](../tools/parse-transcripts.cmd))
 - **[skills-sync](../tools/skills-sync.js)** - Install, update, and verify skills across projects ([POSIX](../tools/skills-sync) | [Windows](../tools/skills-sync.cmd))
 - **[lint-skills](../tools/lint-skills.sh)** - Lint skills for Windows-unsafe shell patterns
 - **[spec-workflow-dev-sync](../tools/spec-workflow-dev-sync.sh)** - Sync plugin edits to Claude Code cache for local development ([Windows](../tools/spec-workflow-dev-sync.cmd))
